@@ -1,0 +1,883 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-03-15T14:20:40.173938+09:00 by Eclipse SUMO netconvert 1.26.0
+<netconvertConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/netconvertConfiguration.xsd">
+
+    <input>
+        <node-files value="sumo/hanoi_hk.nod.xml"/>
+        <edge-files value="sumo/hanoi_hk.edg.xml"/>
+    </input>
+
+    <output>
+        <output-file value="sumo/hanoi_hk.net.xml"/>
+    </output>
+
+    <projection>
+        <proj value="+proj=utm +zone=48 +datum=WGS84 +units=m +no_defs"/>
+    </projection>
+
+    <tls_building>
+        <tls.default-type value="static"/>
+    </tls_building>
+
+    <junctions>
+        <no-turnarounds value="true"/>
+    </junctions>
+
+</netconvertConfiguration>
+-->
+
+<net version="1.20" junctionCornerDetail="5" limitTurnSpeed="5.50" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/net_file.xsd">
+
+    <location netOffset="-587910.11,-2324595.68" convBoundary="0.00,0.00,1042.03,1108.82" origBoundary="105.846000,21.020000,105.856000,21.030000" projParameter="+proj=utm +zone=48 +datum=WGS84 +units=m +no_defs"/>
+
+    <edge id=":HK01_0" function="internal">
+        <lane id=":HK01_0_0" index="0" speed="6.51" length="9.03" shape="344.32,558.27 341.87,558.60 340.12,559.64 339.06,561.39 338.69,563.84"/>
+    </edge>
+    <edge id=":HK01_1" function="internal">
+        <lane id=":HK01_1_0" index="0" speed="13.89" length="20.80" shape="344.32,558.27 323.52,558.15"/>
+        <lane id=":HK01_1_1" index="1" speed="13.89" length="20.80" shape="344.34,555.07 323.54,554.95"/>
+    </edge>
+    <edge id=":HK01_3" function="internal">
+        <lane id=":HK01_3_0" index="0" speed="9.26" length="5.01" shape="344.34,555.07 339.38,554.33"/>
+    </edge>
+    <edge id=":HK01_16" function="internal">
+        <lane id=":HK01_16_0" index="0" speed="9.26" length="14.34" shape="339.38,554.33 339.10,554.29 335.36,552.02 333.13,548.26 332.41,543.00"/>
+    </edge>
+    <edge id=":HK01_4" function="internal">
+        <lane id=":HK01_4_0" index="0" speed="6.51" length="9.03" shape="338.81,543.04 339.14,545.49 340.18,547.24 341.93,548.30 344.38,548.67"/>
+    </edge>
+    <edge id=":HK01_5" function="internal">
+        <lane id=":HK01_5_0" index="0" speed="13.89" length="20.80" shape="338.81,543.04 338.69,563.84"/>
+        <lane id=":HK01_5_1" index="1" speed="13.89" length="20.80" shape="335.61,543.02 335.49,563.82"/>
+    </edge>
+    <edge id=":HK01_7" function="internal">
+        <lane id=":HK01_7_0" index="0" speed="9.26" length="5.01" shape="335.61,543.02 334.87,547.98"/>
+    </edge>
+    <edge id=":HK01_17" function="internal">
+        <lane id=":HK01_17_0" index="0" speed="9.26" length="14.34" shape="334.87,547.98 334.83,548.26 332.56,552.00 328.80,554.23 323.54,554.95"/>
+    </edge>
+    <edge id=":HK01_8" function="internal">
+        <lane id=":HK01_8_0" index="0" speed="6.51" length="9.03" shape="323.58,548.56 326.03,548.22 327.78,547.18 328.84,545.43 329.21,542.98"/>
+    </edge>
+    <edge id=":HK01_9" function="internal">
+        <lane id=":HK01_9_0" index="0" speed="13.89" length="20.80" shape="323.58,548.56 344.38,548.67"/>
+        <lane id=":HK01_9_1" index="1" speed="13.89" length="20.80" shape="323.56,551.75 344.36,551.87"/>
+    </edge>
+    <edge id=":HK01_11" function="internal">
+        <lane id=":HK01_11_0" index="0" speed="9.26" length="5.01" shape="323.56,551.75 328.52,552.49"/>
+    </edge>
+    <edge id=":HK01_18" function="internal">
+        <lane id=":HK01_18_0" index="0" speed="9.26" length="14.34" shape="328.52,552.49 328.80,552.53 332.54,554.80 334.77,558.56 335.49,563.82"/>
+    </edge>
+    <edge id=":HK01_12" function="internal">
+        <lane id=":HK01_12_0" index="0" speed="6.51" length="9.03" shape="329.09,563.78 328.76,561.33 327.72,559.58 325.97,558.52 323.52,558.15"/>
+    </edge>
+    <edge id=":HK01_13" function="internal">
+        <lane id=":HK01_13_0" index="0" speed="13.89" length="20.80" shape="329.09,563.78 329.21,542.98"/>
+        <lane id=":HK01_13_1" index="1" speed="13.89" length="20.80" shape="332.29,563.80 332.41,543.00"/>
+    </edge>
+    <edge id=":HK01_15" function="internal">
+        <lane id=":HK01_15_0" index="0" speed="9.26" length="5.01" shape="332.29,563.80 333.03,558.84"/>
+    </edge>
+    <edge id=":HK01_19" function="internal">
+        <lane id=":HK01_19_0" index="0" speed="9.26" length="14.34" shape="333.03,558.84 333.07,558.56 335.34,554.82 339.10,552.59 344.36,551.87"/>
+    </edge>
+    <edge id=":HK02_0" function="internal">
+        <lane id=":HK02_0_0" index="0" speed="6.51" length="9.03" shape="718.43,560.26 715.98,560.59 714.23,561.63 713.17,563.38 712.80,565.83"/>
+    </edge>
+    <edge id=":HK02_1" function="internal">
+        <lane id=":HK02_1_0" index="0" speed="13.89" length="20.80" shape="718.43,560.26 697.63,560.14"/>
+        <lane id=":HK02_1_1" index="1" speed="13.89" length="20.80" shape="718.45,557.06 697.65,556.94"/>
+    </edge>
+    <edge id=":HK02_3" function="internal">
+        <lane id=":HK02_3_0" index="0" speed="9.26" length="5.01" shape="718.45,557.06 713.49,556.32"/>
+    </edge>
+    <edge id=":HK02_16" function="internal">
+        <lane id=":HK02_16_0" index="0" speed="9.26" length="14.34" shape="713.49,556.32 713.21,556.28 709.47,554.01 707.24,550.25 706.52,544.99"/>
+    </edge>
+    <edge id=":HK02_4" function="internal">
+        <lane id=":HK02_4_0" index="0" speed="6.51" length="9.03" shape="712.92,545.03 713.25,547.48 714.29,549.23 716.04,550.29 718.49,550.66"/>
+    </edge>
+    <edge id=":HK02_5" function="internal">
+        <lane id=":HK02_5_0" index="0" speed="13.89" length="20.80" shape="712.92,545.03 712.80,565.83"/>
+        <lane id=":HK02_5_1" index="1" speed="13.89" length="20.80" shape="709.72,545.01 709.60,565.81"/>
+    </edge>
+    <edge id=":HK02_7" function="internal">
+        <lane id=":HK02_7_0" index="0" speed="9.26" length="5.01" shape="709.72,545.01 708.98,549.97"/>
+    </edge>
+    <edge id=":HK02_17" function="internal">
+        <lane id=":HK02_17_0" index="0" speed="9.26" length="14.34" shape="708.98,549.97 708.94,550.25 706.67,553.99 702.91,556.22 697.65,556.94"/>
+    </edge>
+    <edge id=":HK02_8" function="internal">
+        <lane id=":HK02_8_0" index="0" speed="6.51" length="9.03" shape="697.69,550.54 700.14,550.21 701.89,549.17 702.95,547.42 703.32,544.97"/>
+    </edge>
+    <edge id=":HK02_9" function="internal">
+        <lane id=":HK02_9_0" index="0" speed="13.89" length="20.80" shape="697.69,550.54 718.49,550.66"/>
+        <lane id=":HK02_9_1" index="1" speed="13.89" length="20.80" shape="697.67,553.74 718.47,553.86"/>
+    </edge>
+    <edge id=":HK02_11" function="internal">
+        <lane id=":HK02_11_0" index="0" speed="9.26" length="5.01" shape="697.67,553.74 702.63,554.48"/>
+    </edge>
+    <edge id=":HK02_18" function="internal">
+        <lane id=":HK02_18_0" index="0" speed="9.26" length="14.34" shape="702.63,554.48 702.91,554.52 706.65,556.79 708.88,560.55 709.60,565.81"/>
+    </edge>
+    <edge id=":HK02_12" function="internal">
+        <lane id=":HK02_12_0" index="0" speed="6.51" length="9.03" shape="703.20,565.77 702.87,563.32 701.83,561.57 700.08,560.51 697.63,560.14"/>
+    </edge>
+    <edge id=":HK02_13" function="internal">
+        <lane id=":HK02_13_0" index="0" speed="13.89" length="20.80" shape="703.20,565.77 703.32,544.97"/>
+        <lane id=":HK02_13_1" index="1" speed="13.89" length="20.80" shape="706.40,565.79 706.52,544.99"/>
+    </edge>
+    <edge id=":HK02_15" function="internal">
+        <lane id=":HK02_15_0" index="0" speed="9.26" length="5.01" shape="706.40,565.79 707.14,560.83"/>
+    </edge>
+    <edge id=":HK02_19" function="internal">
+        <lane id=":HK02_19_0" index="0" speed="9.26" length="14.34" shape="707.14,560.83 707.18,560.55 709.45,556.81 713.21,554.58 718.47,553.86"/>
+    </edge>
+    <edge id=":HK03_0" function="internal">
+        <lane id=":HK03_0_0" index="0" speed="6.51" length="9.03" shape="345.73,292.63 343.28,292.96 341.53,294.00 340.47,295.75 340.10,298.20"/>
+    </edge>
+    <edge id=":HK03_1" function="internal">
+        <lane id=":HK03_1_0" index="0" speed="13.89" length="20.80" shape="345.73,292.63 324.93,292.51"/>
+        <lane id=":HK03_1_1" index="1" speed="13.89" length="20.80" shape="345.75,289.43 324.95,289.31"/>
+    </edge>
+    <edge id=":HK03_3" function="internal">
+        <lane id=":HK03_3_0" index="0" speed="9.26" length="5.01" shape="345.75,289.43 340.79,288.69"/>
+    </edge>
+    <edge id=":HK03_16" function="internal">
+        <lane id=":HK03_16_0" index="0" speed="9.26" length="14.34" shape="340.79,288.69 340.51,288.65 336.77,286.38 334.54,282.62 333.82,277.36"/>
+    </edge>
+    <edge id=":HK03_4" function="internal">
+        <lane id=":HK03_4_0" index="0" speed="6.51" length="9.03" shape="340.22,277.40 340.55,279.85 341.59,281.60 343.34,282.66 345.79,283.03"/>
+    </edge>
+    <edge id=":HK03_5" function="internal">
+        <lane id=":HK03_5_0" index="0" speed="13.89" length="20.80" shape="340.22,277.40 340.10,298.20"/>
+        <lane id=":HK03_5_1" index="1" speed="13.89" length="20.80" shape="337.02,277.38 336.90,298.18"/>
+    </edge>
+    <edge id=":HK03_7" function="internal">
+        <lane id=":HK03_7_0" index="0" speed="9.26" length="5.01" shape="337.02,277.38 336.28,282.34"/>
+    </edge>
+    <edge id=":HK03_17" function="internal">
+        <lane id=":HK03_17_0" index="0" speed="9.26" length="14.34" shape="336.28,282.34 336.24,282.62 333.97,286.36 330.21,288.59 324.95,289.31"/>
+    </edge>
+    <edge id=":HK03_8" function="internal">
+        <lane id=":HK03_8_0" index="0" speed="6.51" length="9.03" shape="324.99,282.92 327.44,282.58 329.19,281.54 330.25,279.79 330.62,277.34"/>
+    </edge>
+    <edge id=":HK03_9" function="internal">
+        <lane id=":HK03_9_0" index="0" speed="13.89" length="20.80" shape="324.99,282.92 345.79,283.03"/>
+        <lane id=":HK03_9_1" index="1" speed="13.89" length="20.80" shape="324.97,286.11 345.77,286.23"/>
+    </edge>
+    <edge id=":HK03_11" function="internal">
+        <lane id=":HK03_11_0" index="0" speed="9.26" length="5.01" shape="324.97,286.11 329.93,286.85"/>
+    </edge>
+    <edge id=":HK03_18" function="internal">
+        <lane id=":HK03_18_0" index="0" speed="9.26" length="14.34" shape="329.93,286.85 330.21,286.89 333.95,289.16 336.18,292.92 336.90,298.18"/>
+    </edge>
+    <edge id=":HK03_12" function="internal">
+        <lane id=":HK03_12_0" index="0" speed="6.51" length="9.03" shape="330.50,298.14 330.17,295.69 329.13,293.94 327.38,292.88 324.93,292.51"/>
+    </edge>
+    <edge id=":HK03_13" function="internal">
+        <lane id=":HK03_13_0" index="0" speed="13.89" length="20.80" shape="330.50,298.14 330.62,277.34"/>
+        <lane id=":HK03_13_1" index="1" speed="13.89" length="20.80" shape="333.70,298.16 333.82,277.36"/>
+    </edge>
+    <edge id=":HK03_15" function="internal">
+        <lane id=":HK03_15_0" index="0" speed="9.26" length="5.01" shape="333.70,298.16 334.44,293.20"/>
+    </edge>
+    <edge id=":HK03_19" function="internal">
+        <lane id=":HK03_19_0" index="0" speed="9.26" length="14.34" shape="334.44,293.20 334.48,292.92 336.75,289.18 340.51,286.95 345.77,286.23"/>
+    </edge>
+    <edge id=":HK04_0" function="internal">
+        <lane id=":HK04_0_0" index="0" speed="6.51" length="9.03" shape="717.01,825.90 714.56,826.23 712.81,827.27 711.75,829.02 711.38,831.47"/>
+    </edge>
+    <edge id=":HK04_1" function="internal">
+        <lane id=":HK04_1_0" index="0" speed="13.89" length="20.80" shape="717.01,825.90 696.21,825.78"/>
+        <lane id=":HK04_1_1" index="1" speed="13.89" length="20.80" shape="717.03,822.70 696.23,822.58"/>
+    </edge>
+    <edge id=":HK04_3" function="internal">
+        <lane id=":HK04_3_0" index="0" speed="9.26" length="5.01" shape="717.03,822.70 712.07,821.96"/>
+    </edge>
+    <edge id=":HK04_16" function="internal">
+        <lane id=":HK04_16_0" index="0" speed="9.26" length="14.34" shape="712.07,821.96 711.79,821.92 708.05,819.65 705.82,815.89 705.10,810.63"/>
+    </edge>
+    <edge id=":HK04_4" function="internal">
+        <lane id=":HK04_4_0" index="0" speed="6.51" length="9.03" shape="711.50,810.67 711.83,813.12 712.87,814.87 714.62,815.93 717.07,816.30"/>
+    </edge>
+    <edge id=":HK04_5" function="internal">
+        <lane id=":HK04_5_0" index="0" speed="13.89" length="20.80" shape="711.50,810.67 711.38,831.47"/>
+        <lane id=":HK04_5_1" index="1" speed="13.89" length="20.80" shape="708.30,810.65 708.18,831.45"/>
+    </edge>
+    <edge id=":HK04_7" function="internal">
+        <lane id=":HK04_7_0" index="0" speed="9.26" length="5.01" shape="708.30,810.65 707.56,815.61"/>
+    </edge>
+    <edge id=":HK04_17" function="internal">
+        <lane id=":HK04_17_0" index="0" speed="9.26" length="14.34" shape="707.56,815.61 707.52,815.89 705.25,819.63 701.49,821.86 696.23,822.58"/>
+    </edge>
+    <edge id=":HK04_8" function="internal">
+        <lane id=":HK04_8_0" index="0" speed="6.51" length="9.03" shape="696.27,816.18 698.72,815.85 700.47,814.81 701.53,813.06 701.90,810.61"/>
+    </edge>
+    <edge id=":HK04_9" function="internal">
+        <lane id=":HK04_9_0" index="0" speed="13.89" length="20.80" shape="696.27,816.18 717.07,816.30"/>
+        <lane id=":HK04_9_1" index="1" speed="13.89" length="20.80" shape="696.25,819.38 717.05,819.50"/>
+    </edge>
+    <edge id=":HK04_11" function="internal">
+        <lane id=":HK04_11_0" index="0" speed="9.26" length="5.01" shape="696.25,819.38 701.21,820.12"/>
+    </edge>
+    <edge id=":HK04_18" function="internal">
+        <lane id=":HK04_18_0" index="0" speed="9.26" length="14.34" shape="701.21,820.12 701.49,820.16 705.23,822.43 707.46,826.19 708.18,831.45"/>
+    </edge>
+    <edge id=":HK04_12" function="internal">
+        <lane id=":HK04_12_0" index="0" speed="6.51" length="9.03" shape="701.78,831.41 701.45,828.96 700.41,827.21 698.66,826.15 696.21,825.78"/>
+    </edge>
+    <edge id=":HK04_13" function="internal">
+        <lane id=":HK04_13_0" index="0" speed="13.89" length="20.80" shape="701.78,831.41 701.90,810.61"/>
+        <lane id=":HK04_13_1" index="1" speed="13.89" length="20.80" shape="704.98,831.43 705.10,810.63"/>
+    </edge>
+    <edge id=":HK04_15" function="internal">
+        <lane id=":HK04_15_0" index="0" speed="9.26" length="5.01" shape="704.98,831.43 705.72,826.47"/>
+    </edge>
+    <edge id=":HK04_19" function="internal">
+        <lane id=":HK04_19_0" index="0" speed="9.26" length="14.34" shape="705.72,826.47 705.76,826.19 708.03,822.45 711.79,820.22 717.05,819.50"/>
+    </edge>
+    <edge id=":HK05_0" function="internal">
+        <lane id=":HK05_0_0" index="0" speed="6.51" length="9.03" shape="342.91,823.91 340.46,824.24 338.71,825.28 337.65,827.03 337.28,829.48"/>
+    </edge>
+    <edge id=":HK05_1" function="internal">
+        <lane id=":HK05_1_0" index="0" speed="13.89" length="20.80" shape="342.91,823.91 322.11,823.79"/>
+        <lane id=":HK05_1_1" index="1" speed="13.89" length="20.80" shape="342.93,820.71 322.13,820.59"/>
+    </edge>
+    <edge id=":HK05_3" function="internal">
+        <lane id=":HK05_3_0" index="0" speed="9.26" length="5.01" shape="342.93,820.71 337.97,819.97"/>
+    </edge>
+    <edge id=":HK05_16" function="internal">
+        <lane id=":HK05_16_0" index="0" speed="9.26" length="14.34" shape="337.97,819.97 337.69,819.93 333.95,817.66 331.72,813.90 331.00,808.64"/>
+    </edge>
+    <edge id=":HK05_4" function="internal">
+        <lane id=":HK05_4_0" index="0" speed="6.51" length="9.03" shape="337.40,808.68 337.73,811.13 338.77,812.88 340.52,813.94 342.97,814.31"/>
+    </edge>
+    <edge id=":HK05_5" function="internal">
+        <lane id=":HK05_5_0" index="0" speed="13.89" length="20.80" shape="337.40,808.68 337.28,829.48"/>
+        <lane id=":HK05_5_1" index="1" speed="13.89" length="20.80" shape="334.20,808.66 334.08,829.46"/>
+    </edge>
+    <edge id=":HK05_7" function="internal">
+        <lane id=":HK05_7_0" index="0" speed="9.26" length="5.01" shape="334.20,808.66 333.46,813.62"/>
+    </edge>
+    <edge id=":HK05_17" function="internal">
+        <lane id=":HK05_17_0" index="0" speed="9.26" length="14.34" shape="333.46,813.62 333.42,813.90 331.15,817.64 327.39,819.87 322.13,820.59"/>
+    </edge>
+    <edge id=":HK05_8" function="internal">
+        <lane id=":HK05_8_0" index="0" speed="6.51" length="9.03" shape="322.17,814.19 324.62,813.86 326.37,812.82 327.43,811.07 327.80,808.62"/>
+    </edge>
+    <edge id=":HK05_9" function="internal">
+        <lane id=":HK05_9_0" index="0" speed="13.89" length="20.80" shape="322.17,814.19 342.97,814.31"/>
+        <lane id=":HK05_9_1" index="1" speed="13.89" length="20.80" shape="322.15,817.39 342.95,817.51"/>
+    </edge>
+    <edge id=":HK05_11" function="internal">
+        <lane id=":HK05_11_0" index="0" speed="9.26" length="5.01" shape="322.15,817.39 327.11,818.13"/>
+    </edge>
+    <edge id=":HK05_18" function="internal">
+        <lane id=":HK05_18_0" index="0" speed="9.26" length="14.34" shape="327.11,818.13 327.39,818.17 331.13,820.44 333.36,824.20 334.08,829.46"/>
+    </edge>
+    <edge id=":HK05_12" function="internal">
+        <lane id=":HK05_12_0" index="0" speed="6.51" length="9.03" shape="327.68,829.42 327.35,826.97 326.31,825.22 324.56,824.16 322.11,823.79"/>
+    </edge>
+    <edge id=":HK05_13" function="internal">
+        <lane id=":HK05_13_0" index="0" speed="13.89" length="20.80" shape="327.68,829.42 327.80,808.62"/>
+        <lane id=":HK05_13_1" index="1" speed="13.89" length="20.80" shape="330.88,829.44 331.00,808.64"/>
+    </edge>
+    <edge id=":HK05_15" function="internal">
+        <lane id=":HK05_15_0" index="0" speed="9.26" length="5.01" shape="330.88,829.44 331.62,824.48"/>
+    </edge>
+    <edge id=":HK05_19" function="internal">
+        <lane id=":HK05_19_0" index="0" speed="9.26" length="14.34" shape="331.62,824.48 331.66,824.20 333.93,820.46 337.69,818.23 342.95,817.51"/>
+    </edge>
+    <edge id=":HK06_0" function="internal">
+        <lane id=":HK06_0_0" index="0" speed="6.51" length="9.03" shape="719.85,294.63 717.40,294.96 715.65,296.00 714.59,297.75 714.22,300.20"/>
+    </edge>
+    <edge id=":HK06_1" function="internal">
+        <lane id=":HK06_1_0" index="0" speed="13.89" length="20.80" shape="719.85,294.63 699.05,294.51"/>
+        <lane id=":HK06_1_1" index="1" speed="13.89" length="20.80" shape="719.87,291.43 699.07,291.31"/>
+    </edge>
+    <edge id=":HK06_3" function="internal">
+        <lane id=":HK06_3_0" index="0" speed="9.26" length="5.01" shape="719.87,291.43 714.91,290.69"/>
+    </edge>
+    <edge id=":HK06_16" function="internal">
+        <lane id=":HK06_16_0" index="0" speed="9.26" length="14.34" shape="714.91,290.69 714.63,290.65 710.89,288.38 708.66,284.62 707.94,279.36"/>
+    </edge>
+    <edge id=":HK06_4" function="internal">
+        <lane id=":HK06_4_0" index="0" speed="6.51" length="9.03" shape="714.34,279.40 714.67,281.85 715.71,283.60 717.46,284.66 719.91,285.03"/>
+    </edge>
+    <edge id=":HK06_5" function="internal">
+        <lane id=":HK06_5_0" index="0" speed="13.89" length="20.80" shape="714.34,279.40 714.22,300.20"/>
+        <lane id=":HK06_5_1" index="1" speed="13.89" length="20.80" shape="711.14,279.38 711.02,300.18"/>
+    </edge>
+    <edge id=":HK06_7" function="internal">
+        <lane id=":HK06_7_0" index="0" speed="9.26" length="5.01" shape="711.14,279.38 710.40,284.34"/>
+    </edge>
+    <edge id=":HK06_17" function="internal">
+        <lane id=":HK06_17_0" index="0" speed="9.26" length="14.34" shape="710.40,284.34 710.36,284.62 708.09,288.36 704.33,290.59 699.07,291.31"/>
+    </edge>
+    <edge id=":HK06_8" function="internal">
+        <lane id=":HK06_8_0" index="0" speed="6.51" length="9.03" shape="699.11,284.91 701.56,284.58 703.31,283.54 704.37,281.79 704.74,279.34"/>
+    </edge>
+    <edge id=":HK06_9" function="internal">
+        <lane id=":HK06_9_0" index="0" speed="13.89" length="20.80" shape="699.11,284.91 719.91,285.03"/>
+        <lane id=":HK06_9_1" index="1" speed="13.89" length="20.80" shape="699.09,288.11 719.89,288.23"/>
+    </edge>
+    <edge id=":HK06_11" function="internal">
+        <lane id=":HK06_11_0" index="0" speed="9.26" length="5.01" shape="699.09,288.11 704.05,288.85"/>
+    </edge>
+    <edge id=":HK06_18" function="internal">
+        <lane id=":HK06_18_0" index="0" speed="9.26" length="14.34" shape="704.05,288.85 704.33,288.89 708.07,291.16 710.30,294.92 711.02,300.18"/>
+    </edge>
+    <edge id=":HK06_12" function="internal">
+        <lane id=":HK06_12_0" index="0" speed="6.51" length="9.03" shape="704.62,300.14 704.29,297.69 703.25,295.94 701.50,294.88 699.05,294.51"/>
+    </edge>
+    <edge id=":HK06_13" function="internal">
+        <lane id=":HK06_13_0" index="0" speed="13.89" length="20.80" shape="704.62,300.14 704.74,279.34"/>
+        <lane id=":HK06_13_1" index="1" speed="13.89" length="20.80" shape="707.82,300.16 707.94,279.36"/>
+    </edge>
+    <edge id=":HK06_15" function="internal">
+        <lane id=":HK06_15_0" index="0" speed="9.26" length="5.01" shape="707.82,300.16 708.56,295.20"/>
+    </edge>
+    <edge id=":HK06_19" function="internal">
+        <lane id=":HK06_19_0" index="0" speed="9.26" length="14.34" shape="708.56,295.20 708.60,294.92 710.87,291.18 714.63,288.95 719.89,288.23"/>
+    </edge>
+
+    <edge id="E_HK02_in" from="E_HK02" to="HK02" priority="-1">
+        <lane id="E_HK02_in_0" index="0" speed="13.89" length="322.15" shape="1040.58,561.98 718.43,560.26"/>
+        <lane id="E_HK02_in_1" index="1" speed="13.89" length="322.15" shape="1040.60,558.78 718.45,557.06"/>
+    </edge>
+    <edge id="E_HK02_out" from="HK02" to="E_HK02" priority="-1">
+        <lane id="E_HK02_out_0" index="0" speed="13.89" length="322.15" shape="718.49,550.66 1040.64,552.38"/>
+        <lane id="E_HK02_out_1" index="1" speed="13.89" length="322.15" shape="718.47,553.86 1040.62,555.58"/>
+    </edge>
+    <edge id="E_HK04_in" from="E_HK04" to="HK04" priority="-1">
+        <lane id="E_HK04_in_0" index="0" speed="13.89" length="322.14" shape="1039.15,827.62 717.01,825.90"/>
+        <lane id="E_HK04_in_1" index="1" speed="13.89" length="322.14" shape="1039.17,824.42 717.03,822.70"/>
+    </edge>
+    <edge id="E_HK04_out" from="HK04" to="E_HK04" priority="-1">
+        <lane id="E_HK04_out_0" index="0" speed="13.89" length="322.14" shape="717.07,816.30 1039.21,818.02"/>
+        <lane id="E_HK04_out_1" index="1" speed="13.89" length="322.14" shape="717.05,819.50 1039.19,821.22"/>
+    </edge>
+    <edge id="E_HK06_in" from="E_HK06" to="HK06" priority="-1">
+        <lane id="E_HK06_in_0" index="0" speed="13.89" length="322.15" shape="1042.00,296.35 719.85,294.63"/>
+        <lane id="E_HK06_in_1" index="1" speed="13.89" length="322.15" shape="1042.02,293.15 719.87,291.43"/>
+    </edge>
+    <edge id="E_HK06_out" from="HK06" to="E_HK06" priority="-1">
+        <lane id="E_HK06_out_0" index="0" speed="13.89" length="322.15" shape="719.91,285.03 1042.06,286.75"/>
+        <lane id="E_HK06_out_1" index="1" speed="13.89" length="322.15" shape="719.89,288.23 1042.04,289.95"/>
+    </edge>
+    <edge id="HK01_HK02" from="HK01" to="HK02" priority="-1">
+        <lane id="HK01_HK02_0" index="0" speed="13.89" length="353.32" shape="344.38,548.67 697.69,550.54"/>
+        <lane id="HK01_HK02_1" index="1" speed="13.89" length="353.32" shape="344.36,551.87 697.67,553.74"/>
+    </edge>
+    <edge id="HK01_HK03" from="HK01" to="HK03" priority="-1">
+        <lane id="HK01_HK03_0" index="0" speed="13.89" length="244.84" shape="329.21,542.98 330.50,298.14"/>
+        <lane id="HK01_HK03_1" index="1" speed="13.89" length="244.84" shape="332.41,543.00 333.70,298.16"/>
+    </edge>
+    <edge id="HK01_HK05" from="HK01" to="HK05" priority="-1">
+        <lane id="HK01_HK05_0" index="0" speed="13.89" length="244.84" shape="338.69,563.84 337.40,808.68"/>
+        <lane id="HK01_HK05_1" index="1" speed="13.89" length="244.84" shape="335.49,563.82 334.20,808.66"/>
+    </edge>
+    <edge id="HK02_HK01" from="HK02" to="HK01" priority="-1">
+        <lane id="HK02_HK01_0" index="0" speed="13.89" length="353.32" shape="697.63,560.14 344.32,558.27"/>
+        <lane id="HK02_HK01_1" index="1" speed="13.89" length="353.32" shape="697.65,556.94 344.34,555.07"/>
+    </edge>
+    <edge id="HK02_HK04" from="HK02" to="HK04" priority="-1">
+        <lane id="HK02_HK04_0" index="0" speed="13.89" length="244.84" shape="712.80,565.83 711.50,810.67"/>
+        <lane id="HK02_HK04_1" index="1" speed="13.89" length="244.84" shape="709.60,565.81 708.30,810.65"/>
+    </edge>
+    <edge id="HK02_HK06" from="HK02" to="HK06" priority="-1">
+        <lane id="HK02_HK06_0" index="0" speed="13.89" length="244.83" shape="703.32,544.97 704.62,300.14"/>
+        <lane id="HK02_HK06_1" index="1" speed="13.89" length="244.83" shape="706.52,544.99 707.82,300.16"/>
+    </edge>
+    <edge id="HK03_HK01" from="HK03" to="HK01" priority="-1">
+        <lane id="HK03_HK01_0" index="0" speed="13.89" length="244.84" shape="340.10,298.20 338.81,543.04"/>
+        <lane id="HK03_HK01_1" index="1" speed="13.89" length="244.84" shape="336.90,298.18 335.61,543.02"/>
+    </edge>
+    <edge id="HK03_HK06" from="HK03" to="HK06" priority="-1">
+        <lane id="HK03_HK06_0" index="0" speed="13.89" length="353.33" shape="345.79,283.03 699.11,284.91"/>
+        <lane id="HK03_HK06_1" index="1" speed="13.89" length="353.33" shape="345.77,286.23 699.09,288.11"/>
+    </edge>
+    <edge id="HK04_HK02" from="HK04" to="HK02" priority="-1">
+        <lane id="HK04_HK02_0" index="0" speed="13.89" length="244.84" shape="701.90,810.61 703.20,565.77"/>
+        <lane id="HK04_HK02_1" index="1" speed="13.89" length="244.84" shape="705.10,810.63 706.40,565.79"/>
+    </edge>
+    <edge id="HK04_HK05" from="HK04" to="HK05" priority="-1">
+        <lane id="HK04_HK05_0" index="0" speed="13.89" length="353.31" shape="696.21,825.78 342.91,823.91"/>
+        <lane id="HK04_HK05_1" index="1" speed="13.89" length="353.31" shape="696.23,822.58 342.93,820.71"/>
+    </edge>
+    <edge id="HK05_HK01" from="HK05" to="HK01" priority="-1">
+        <lane id="HK05_HK01_0" index="0" speed="13.89" length="244.84" shape="327.80,808.62 329.09,563.78"/>
+        <lane id="HK05_HK01_1" index="1" speed="13.89" length="244.84" shape="331.00,808.64 332.29,563.80"/>
+    </edge>
+    <edge id="HK05_HK04" from="HK05" to="HK04" priority="-1">
+        <lane id="HK05_HK04_0" index="0" speed="13.89" length="353.31" shape="342.97,814.31 696.27,816.18"/>
+        <lane id="HK05_HK04_1" index="1" speed="13.89" length="353.31" shape="342.95,817.51 696.25,819.38"/>
+    </edge>
+    <edge id="HK06_HK02" from="HK06" to="HK02" priority="-1">
+        <lane id="HK06_HK02_0" index="0" speed="13.89" length="244.83" shape="714.22,300.20 712.92,545.03"/>
+        <lane id="HK06_HK02_1" index="1" speed="13.89" length="244.83" shape="711.02,300.18 709.72,545.01"/>
+    </edge>
+    <edge id="HK06_HK03" from="HK06" to="HK03" priority="-1">
+        <lane id="HK06_HK03_0" index="0" speed="13.89" length="353.33" shape="699.05,294.51 345.73,292.63"/>
+        <lane id="HK06_HK03_1" index="1" speed="13.89" length="353.33" shape="699.07,291.31 345.75,289.43"/>
+    </edge>
+    <edge id="N_HK04_in" from="N_HK04" to="HK04" priority="-1">
+        <lane id="N_HK04_in_0" index="0" speed="13.89" length="277.38" shape="700.31,1108.79 701.78,831.41"/>
+        <lane id="N_HK04_in_1" index="1" speed="13.89" length="277.38" shape="703.51,1108.81 704.98,831.43"/>
+    </edge>
+    <edge id="N_HK04_out" from="HK04" to="N_HK04" priority="-1">
+        <lane id="N_HK04_out_0" index="0" speed="13.89" length="277.38" shape="711.38,831.47 709.91,1108.85"/>
+        <lane id="N_HK04_out_1" index="1" speed="13.89" length="277.38" shape="708.18,831.45 706.71,1108.83"/>
+    </edge>
+    <edge id="N_HK05_in" from="N_HK05" to="HK05" priority="-1">
+        <lane id="N_HK05_in_0" index="0" speed="13.89" length="277.37" shape="326.21,1106.79 327.68,829.42"/>
+        <lane id="N_HK05_in_1" index="1" speed="13.89" length="277.37" shape="329.41,1106.81 330.88,829.44"/>
+    </edge>
+    <edge id="N_HK05_out" from="HK05" to="N_HK05" priority="-1">
+        <lane id="N_HK05_out_0" index="0" speed="13.89" length="277.37" shape="337.28,829.48 335.81,1106.85"/>
+        <lane id="N_HK05_out_1" index="1" speed="13.89" length="277.37" shape="334.08,829.46 332.61,1106.83"/>
+    </edge>
+    <edge id="S_HK03_in" from="S_HK03" to="HK03" priority="-1">
+        <lane id="S_HK03_in_0" index="0" speed="13.89" length="277.37" shape="341.69,0.03 340.22,277.40"/>
+        <lane id="S_HK03_in_1" index="1" speed="13.89" length="277.37" shape="338.49,0.01 337.02,277.38"/>
+    </edge>
+    <edge id="S_HK03_out" from="HK03" to="S_HK03" priority="-1">
+        <lane id="S_HK03_out_0" index="0" speed="13.89" length="277.37" shape="330.62,277.34 332.09,-0.03"/>
+        <lane id="S_HK03_out_1" index="1" speed="13.89" length="277.37" shape="333.82,277.36 335.29,-0.01"/>
+    </edge>
+    <edge id="S_HK06_in" from="S_HK06" to="HK06" priority="-1">
+        <lane id="S_HK06_in_0" index="0" speed="13.89" length="277.38" shape="715.82,2.02 714.34,279.40"/>
+        <lane id="S_HK06_in_1" index="1" speed="13.89" length="277.38" shape="712.62,2.00 711.14,279.38"/>
+    </edge>
+    <edge id="S_HK06_out" from="HK06" to="S_HK06" priority="-1">
+        <lane id="S_HK06_out_0" index="0" speed="13.89" length="277.38" shape="704.74,279.34 706.22,1.96"/>
+        <lane id="S_HK06_out_1" index="1" speed="13.89" length="277.38" shape="707.94,279.36 709.42,1.98"/>
+    </edge>
+    <edge id="W_HK01_in" from="W_HK01" to="HK01" priority="-1">
+        <lane id="W_HK01_in_0" index="0" speed="13.89" length="322.14" shape="1.44,546.85 323.58,548.56"/>
+        <lane id="W_HK01_in_1" index="1" speed="13.89" length="322.14" shape="1.42,550.05 323.56,551.75"/>
+    </edge>
+    <edge id="W_HK01_out" from="HK01" to="W_HK01" priority="-1">
+        <lane id="W_HK01_out_0" index="0" speed="13.89" length="322.14" shape="323.52,558.15 1.38,556.45"/>
+        <lane id="W_HK01_out_1" index="1" speed="13.89" length="322.14" shape="323.54,554.95 1.40,553.25"/>
+    </edge>
+    <edge id="W_HK03_in" from="W_HK03" to="HK03" priority="-1">
+        <lane id="W_HK03_in_0" index="0" speed="13.89" length="322.15" shape="2.84,281.21 324.99,282.92"/>
+        <lane id="W_HK03_in_1" index="1" speed="13.89" length="322.15" shape="2.82,284.41 324.97,286.11"/>
+    </edge>
+    <edge id="W_HK03_out" from="HK03" to="W_HK03" priority="-1">
+        <lane id="W_HK03_out_0" index="0" speed="13.89" length="322.15" shape="324.93,292.51 2.78,290.81"/>
+        <lane id="W_HK03_out_1" index="1" speed="13.89" length="322.15" shape="324.95,289.31 2.80,287.61"/>
+    </edge>
+    <edge id="W_HK05_in" from="W_HK05" to="HK05" priority="-1">
+        <lane id="W_HK05_in_0" index="0" speed="13.89" length="322.14" shape="0.03,812.48 322.17,814.19"/>
+        <lane id="W_HK05_in_1" index="1" speed="13.89" length="322.14" shape="0.01,815.68 322.15,817.39"/>
+    </edge>
+    <edge id="W_HK05_out" from="HK05" to="W_HK05" priority="-1">
+        <lane id="W_HK05_out_0" index="0" speed="13.89" length="322.14" shape="322.11,823.79 -0.03,822.08"/>
+        <lane id="W_HK05_out_1" index="1" speed="13.89" length="322.14" shape="322.13,820.59 -0.01,818.88"/>
+    </edge>
+
+    <tlLogic id="HK01" type="static" programID="0" offset="0">
+        <phase duration="42" state="rrrrGGGgrrrrGGGg"/>
+        <phase duration="3"  state="rrrryyyyrrrryyyy"/>
+        <phase duration="42" state="GGGgrrrrGGGgrrrr"/>
+        <phase duration="3"  state="yyyyrrrryyyyrrrr"/>
+    </tlLogic>
+    <tlLogic id="HK02" type="static" programID="0" offset="0">
+        <phase duration="42" state="rrrrGGGgrrrrGGGg"/>
+        <phase duration="3"  state="rrrryyyyrrrryyyy"/>
+        <phase duration="42" state="GGGgrrrrGGGgrrrr"/>
+        <phase duration="3"  state="yyyyrrrryyyyrrrr"/>
+    </tlLogic>
+    <tlLogic id="HK03" type="static" programID="0" offset="0">
+        <phase duration="42" state="rrrrGGGgrrrrGGGg"/>
+        <phase duration="3"  state="rrrryyyyrrrryyyy"/>
+        <phase duration="42" state="GGGgrrrrGGGgrrrr"/>
+        <phase duration="3"  state="yyyyrrrryyyyrrrr"/>
+    </tlLogic>
+    <tlLogic id="HK04" type="static" programID="0" offset="0">
+        <phase duration="42" state="rrrrGGGgrrrrGGGg"/>
+        <phase duration="3"  state="rrrryyyyrrrryyyy"/>
+        <phase duration="42" state="GGGgrrrrGGGgrrrr"/>
+        <phase duration="3"  state="yyyyrrrryyyyrrrr"/>
+    </tlLogic>
+    <tlLogic id="HK05" type="static" programID="0" offset="0">
+        <phase duration="42" state="GGGgrrrrGGGgrrrr"/>
+        <phase duration="3"  state="yyyyrrrryyyyrrrr"/>
+        <phase duration="42" state="rrrrGGGgrrrrGGGg"/>
+        <phase duration="3"  state="rrrryyyyrrrryyyy"/>
+    </tlLogic>
+    <tlLogic id="HK06" type="static" programID="0" offset="0">
+        <phase duration="42" state="rrrrGGGgrrrrGGGg"/>
+        <phase duration="3"  state="rrrryyyyrrrryyyy"/>
+        <phase duration="42" state="GGGgrrrrGGGgrrrr"/>
+        <phase duration="3"  state="yyyyrrrryyyyrrrr"/>
+    </tlLogic>
+
+    <junction id="E_HK02" type="dead_end" x="1040.61" y="557.18" incLanes="E_HK02_out_0 E_HK02_out_1" intLanes="" shape="1040.61,557.18 1040.64,550.78 1040.61,557.18"/>
+    <junction id="E_HK04" type="dead_end" x="1039.18" y="822.82" incLanes="E_HK04_out_0 E_HK04_out_1" intLanes="" shape="1039.18,822.82 1039.21,816.42 1039.18,822.82"/>
+    <junction id="E_HK06" type="dead_end" x="1042.03" y="291.55" incLanes="E_HK06_out_0 E_HK06_out_1" intLanes="" shape="1042.03,291.55 1042.06,285.15 1042.03,291.55"/>
+    <junction id="HK01" type="traffic_light" x="333.95" y="553.41" incLanes="HK02_HK01_0 HK02_HK01_1 HK03_HK01_0 HK03_HK01_1 W_HK01_in_0 W_HK01_in_1 HK05_HK01_0 HK05_HK01_1" intLanes=":HK01_0_0 :HK01_1_0 :HK01_1_1 :HK01_16_0 :HK01_4_0 :HK01_5_0 :HK01_5_1 :HK01_17_0 :HK01_8_0 :HK01_9_0 :HK01_9_1 :HK01_18_0 :HK01_12_0 :HK01_13_0 :HK01_13_1 :HK01_19_0" shape="344.32,559.87 344.38,547.07 342.16,546.61 341.39,546.05 340.84,545.27 340.51,544.27 340.41,543.04 327.61,542.98 327.15,545.20 326.59,545.97 325.81,546.52 324.81,546.85 323.58,546.96 323.52,559.75 325.74,560.21 326.51,560.77 327.06,561.55 327.39,562.55 327.49,563.78 340.29,563.84 340.75,561.62 341.31,560.85 342.09,560.30 343.09,559.97">
+        <request index="0"  response="0000000001100000" foes="0000000001100000" cont="0"/>
+        <request index="1"  response="1111000011100000" foes="1111100011100000" cont="0"/>
+        <request index="2"  response="1111000011100000" foes="1111100011100000" cont="0"/>
+        <request index="3"  response="1110011011100000" foes="1110011011100000" cont="1"/>
+        <request index="4"  response="0000000000000000" foes="0000011000000000" cont="0"/>
+        <request index="5"  response="0000000000001000" foes="1000111000001111" cont="0"/>
+        <request index="6"  response="0000100000001000" foes="1000111000001111" cont="0"/>
+        <request index="7"  response="0110100000001000" foes="0110111000001110" cont="1"/>
+        <request index="8"  response="0110000000000000" foes="0110000000000000" cont="0"/>
+        <request index="9"  response="1110000011110000" foes="1110000011111000" cont="0"/>
+        <request index="10" response="1110000011110000" foes="1110000011111000" cont="0"/>
+        <request index="11" response="1110000011100110" foes="1110000011100110" cont="1"/>
+        <request index="12" response="0000000000000000" foes="0000000000000110" cont="0"/>
+        <request index="13" response="0000100000000000" foes="0000111110001110" cont="0"/>
+        <request index="14" response="0000100000001000" foes="0000111110001110" cont="0"/>
+        <request index="15" response="0000100001101000" foes="0000111001101110" cont="1"/>
+    </junction>
+    <junction id="HK02" type="traffic_light" x="708.06" y="555.40" incLanes="E_HK02_in_0 E_HK02_in_1 HK06_HK02_0 HK06_HK02_1 HK01_HK02_0 HK01_HK02_1 HK04_HK02_0 HK04_HK02_1" intLanes=":HK02_0_0 :HK02_1_0 :HK02_1_1 :HK02_16_0 :HK02_4_0 :HK02_5_0 :HK02_5_1 :HK02_17_0 :HK02_8_0 :HK02_9_0 :HK02_9_1 :HK02_18_0 :HK02_12_0 :HK02_13_0 :HK02_13_1 :HK02_19_0" shape="718.43,561.86 718.49,549.06 716.27,548.60 715.50,548.04 714.95,547.26 714.62,546.26 714.52,545.03 701.72,544.97 701.26,547.19 700.70,547.96 699.92,548.51 698.92,548.84 697.69,548.94 697.63,561.74 699.85,562.20 700.62,562.76 701.17,563.54 701.50,564.54 701.60,565.77 714.40,565.83 714.86,563.61 715.42,562.84 716.20,562.29 717.20,561.96">
+        <request index="0"  response="0000000001100000" foes="0000000001100000" cont="0"/>
+        <request index="1"  response="1111000011100000" foes="1111100011100000" cont="0"/>
+        <request index="2"  response="1111000011100000" foes="1111100011100000" cont="0"/>
+        <request index="3"  response="1110011011100000" foes="1110011011100000" cont="1"/>
+        <request index="4"  response="0000000000000000" foes="0000011000000000" cont="0"/>
+        <request index="5"  response="0000000000001000" foes="1000111000001111" cont="0"/>
+        <request index="6"  response="0000100000001000" foes="1000111000001111" cont="0"/>
+        <request index="7"  response="0110100000001000" foes="0110111000001110" cont="1"/>
+        <request index="8"  response="0110000000000000" foes="0110000000000000" cont="0"/>
+        <request index="9"  response="1110000011110000" foes="1110000011111000" cont="0"/>
+        <request index="10" response="1110000011110000" foes="1110000011111000" cont="0"/>
+        <request index="11" response="1110000011100110" foes="1110000011100110" cont="1"/>
+        <request index="12" response="0000000000000000" foes="0000000000000110" cont="0"/>
+        <request index="13" response="0000100000000000" foes="0000111110001110" cont="0"/>
+        <request index="14" response="0000100000001000" foes="0000111110001110" cont="0"/>
+        <request index="15" response="0000100001101000" foes="0000111001101110" cont="1"/>
+    </junction>
+    <junction id="HK03" type="traffic_light" x="335.36" y="287.77" incLanes="HK06_HK03_0 HK06_HK03_1 S_HK03_in_0 S_HK03_in_1 W_HK03_in_0 W_HK03_in_1 HK01_HK03_0 HK01_HK03_1" intLanes=":HK03_0_0 :HK03_1_0 :HK03_1_1 :HK03_16_0 :HK03_4_0 :HK03_5_0 :HK03_5_1 :HK03_17_0 :HK03_8_0 :HK03_9_0 :HK03_9_1 :HK03_18_0 :HK03_12_0 :HK03_13_0 :HK03_13_1 :HK03_19_0" shape="345.73,294.23 345.79,281.43 343.57,280.97 342.80,280.41 342.25,279.63 341.92,278.63 341.82,277.40 329.02,277.34 328.56,279.56 328.00,280.33 327.22,280.88 326.22,281.21 324.99,281.32 324.93,294.11 327.15,294.57 327.92,295.13 328.47,295.91 328.80,296.91 328.90,298.14 341.70,298.20 342.16,295.98 342.72,295.21 343.50,294.66 344.50,294.33">
+        <request index="0"  response="0000000001100000" foes="0000000001100000" cont="0"/>
+        <request index="1"  response="1111000011100000" foes="1111100011100000" cont="0"/>
+        <request index="2"  response="1111000011100000" foes="1111100011100000" cont="0"/>
+        <request index="3"  response="1110011011100000" foes="1110011011100000" cont="1"/>
+        <request index="4"  response="0000000000000000" foes="0000011000000000" cont="0"/>
+        <request index="5"  response="0000000000001000" foes="1000111000001111" cont="0"/>
+        <request index="6"  response="0000100000001000" foes="1000111000001111" cont="0"/>
+        <request index="7"  response="0110100000001000" foes="0110111000001110" cont="1"/>
+        <request index="8"  response="0110000000000000" foes="0110000000000000" cont="0"/>
+        <request index="9"  response="1110000011110000" foes="1110000011111000" cont="0"/>
+        <request index="10" response="1110000011110000" foes="1110000011111000" cont="0"/>
+        <request index="11" response="1110000011100110" foes="1110000011100110" cont="1"/>
+        <request index="12" response="0000000000000000" foes="0000000000000110" cont="0"/>
+        <request index="13" response="0000100000000000" foes="0000111110001110" cont="0"/>
+        <request index="14" response="0000100000001000" foes="0000111110001110" cont="0"/>
+        <request index="15" response="0000100001101000" foes="0000111001101110" cont="1"/>
+    </junction>
+    <junction id="HK04" type="traffic_light" x="706.64" y="821.04" incLanes="E_HK04_in_0 E_HK04_in_1 HK02_HK04_0 HK02_HK04_1 HK05_HK04_0 HK05_HK04_1 N_HK04_in_0 N_HK04_in_1" intLanes=":HK04_0_0 :HK04_1_0 :HK04_1_1 :HK04_16_0 :HK04_4_0 :HK04_5_0 :HK04_5_1 :HK04_17_0 :HK04_8_0 :HK04_9_0 :HK04_9_1 :HK04_18_0 :HK04_12_0 :HK04_13_0 :HK04_13_1 :HK04_19_0" shape="717.01,827.50 717.07,814.70 714.85,814.24 714.08,813.68 713.53,812.90 713.20,811.90 713.10,810.67 700.30,810.61 699.84,812.83 699.28,813.60 698.50,814.15 697.50,814.48 696.27,814.58 696.21,827.38 698.43,827.84 699.20,828.40 699.75,829.18 700.08,830.18 700.18,831.41 712.98,831.47 713.44,829.25 714.00,828.48 714.78,827.93 715.78,827.60">
+        <request index="0"  response="0000000001100000" foes="0000000001100000" cont="0"/>
+        <request index="1"  response="1111000011100000" foes="1111100011100000" cont="0"/>
+        <request index="2"  response="1111000011100000" foes="1111100011100000" cont="0"/>
+        <request index="3"  response="1110011011100000" foes="1110011011100000" cont="1"/>
+        <request index="4"  response="0000000000000000" foes="0000011000000000" cont="0"/>
+        <request index="5"  response="0000000000001000" foes="1000111000001111" cont="0"/>
+        <request index="6"  response="0000100000001000" foes="1000111000001111" cont="0"/>
+        <request index="7"  response="0110100000001000" foes="0110111000001110" cont="1"/>
+        <request index="8"  response="0110000000000000" foes="0110000000000000" cont="0"/>
+        <request index="9"  response="1110000011110000" foes="1110000011111000" cont="0"/>
+        <request index="10" response="1110000011110000" foes="1110000011111000" cont="0"/>
+        <request index="11" response="1110000011100110" foes="1110000011100110" cont="1"/>
+        <request index="12" response="0000000000000000" foes="0000000000000110" cont="0"/>
+        <request index="13" response="0000100000000000" foes="0000111110001110" cont="0"/>
+        <request index="14" response="0000100000001000" foes="0000111110001110" cont="0"/>
+        <request index="15" response="0000100001101000" foes="0000111001101110" cont="1"/>
+    </junction>
+    <junction id="HK05" type="traffic_light" x="332.54" y="819.05" incLanes="HK04_HK05_0 HK04_HK05_1 HK01_HK05_0 HK01_HK05_1 W_HK05_in_0 W_HK05_in_1 N_HK05_in_0 N_HK05_in_1" intLanes=":HK05_0_0 :HK05_1_0 :HK05_1_1 :HK05_16_0 :HK05_4_0 :HK05_5_0 :HK05_5_1 :HK05_17_0 :HK05_8_0 :HK05_9_0 :HK05_9_1 :HK05_18_0 :HK05_12_0 :HK05_13_0 :HK05_13_1 :HK05_19_0" shape="342.91,825.51 342.97,812.71 340.75,812.25 339.98,811.69 339.43,810.91 339.10,809.91 339.00,808.68 326.20,808.62 325.74,810.84 325.18,811.61 324.40,812.16 323.40,812.49 322.17,812.59 322.11,825.39 324.33,825.85 325.10,826.41 325.65,827.19 325.98,828.19 326.08,829.42 338.88,829.48 339.34,827.26 339.90,826.49 340.68,825.94 341.68,825.61">
+        <request index="0"  response="0000000000000000" foes="0000000001100000" cont="0"/>
+        <request index="1"  response="1000000000000000" foes="1111100011100000" cont="0"/>
+        <request index="2"  response="1000000010000000" foes="1111100011100000" cont="0"/>
+        <request index="3"  response="1000011010000000" foes="1110011011100000" cont="1"/>
+        <request index="4"  response="0000011000000000" foes="0000011000000000" cont="0"/>
+        <request index="5"  response="0000111000001111" foes="1000111000001111" cont="0"/>
+        <request index="6"  response="0000111000001111" foes="1000111000001111" cont="0"/>
+        <request index="7"  response="0110111000001110" foes="0110111000001110" cont="1"/>
+        <request index="8"  response="0000000000000000" foes="0110000000000000" cont="0"/>
+        <request index="9"  response="0000000010000000" foes="1110000011111000" cont="0"/>
+        <request index="10" response="1000000010000000" foes="1110000011111000" cont="0"/>
+        <request index="11" response="1000000010000110" foes="1110000011100110" cont="1"/>
+        <request index="12" response="0000000000000110" foes="0000000000000110" cont="0"/>
+        <request index="13" response="0000111100001110" foes="0000111110001110" cont="0"/>
+        <request index="14" response="0000111100001110" foes="0000111110001110" cont="0"/>
+        <request index="15" response="0000111001101110" foes="0000111001101110" cont="1"/>
+    </junction>
+    <junction id="HK06" type="traffic_light" x="709.48" y="289.77" incLanes="E_HK06_in_0 E_HK06_in_1 S_HK06_in_0 S_HK06_in_1 HK03_HK06_0 HK03_HK06_1 HK02_HK06_0 HK02_HK06_1" intLanes=":HK06_0_0 :HK06_1_0 :HK06_1_1 :HK06_16_0 :HK06_4_0 :HK06_5_0 :HK06_5_1 :HK06_17_0 :HK06_8_0 :HK06_9_0 :HK06_9_1 :HK06_18_0 :HK06_12_0 :HK06_13_0 :HK06_13_1 :HK06_19_0" shape="719.85,296.23 719.91,283.43 717.69,282.97 716.92,282.41 716.37,281.63 716.04,280.63 715.94,279.40 703.14,279.34 702.68,281.56 702.12,282.33 701.34,282.88 700.34,283.21 699.11,283.31 699.05,296.11 701.27,296.57 702.04,297.13 702.59,297.91 702.92,298.91 703.02,300.14 715.82,300.20 716.28,297.98 716.84,297.21 717.62,296.66 718.62,296.33">
+        <request index="0"  response="0000000001100000" foes="0000000001100000" cont="0"/>
+        <request index="1"  response="1111000011100000" foes="1111100011100000" cont="0"/>
+        <request index="2"  response="1111000011100000" foes="1111100011100000" cont="0"/>
+        <request index="3"  response="1110011011100000" foes="1110011011100000" cont="1"/>
+        <request index="4"  response="0000000000000000" foes="0000011000000000" cont="0"/>
+        <request index="5"  response="0000000000001000" foes="1000111000001111" cont="0"/>
+        <request index="6"  response="0000100000001000" foes="1000111000001111" cont="0"/>
+        <request index="7"  response="0110100000001000" foes="0110111000001110" cont="1"/>
+        <request index="8"  response="0110000000000000" foes="0110000000000000" cont="0"/>
+        <request index="9"  response="1110000011110000" foes="1110000011111000" cont="0"/>
+        <request index="10" response="1110000011110000" foes="1110000011111000" cont="0"/>
+        <request index="11" response="1110000011100110" foes="1110000011100110" cont="1"/>
+        <request index="12" response="0000000000000000" foes="0000000000000110" cont="0"/>
+        <request index="13" response="0000100000000000" foes="0000111110001110" cont="0"/>
+        <request index="14" response="0000100000001000" foes="0000111110001110" cont="0"/>
+        <request index="15" response="0000100001101000" foes="0000111001101110" cont="1"/>
+    </junction>
+    <junction id="N_HK04" type="dead_end" x="705.11" y="1108.82" incLanes="N_HK04_out_0 N_HK04_out_1" intLanes="" shape="705.11,1108.82 711.51,1108.85 705.11,1108.82"/>
+    <junction id="N_HK05" type="dead_end" x="331.01" y="1106.82" incLanes="N_HK05_out_0 N_HK05_out_1" intLanes="" shape="331.01,1106.82 337.41,1106.85 331.01,1106.82"/>
+    <junction id="S_HK03" type="dead_end" x="336.89" y="0.00" incLanes="S_HK03_out_0 S_HK03_out_1" intLanes="" shape="336.89,0.00 330.49,-0.03 336.89,0.00"/>
+    <junction id="S_HK06" type="dead_end" x="711.02" y="1.99" incLanes="S_HK06_out_0 S_HK06_out_1" intLanes="" shape="711.02,1.99 704.62,1.96 711.02,1.99"/>
+    <junction id="W_HK01" type="dead_end" x="1.41" y="551.65" incLanes="W_HK01_out_0 W_HK01_out_1" intLanes="" shape="1.41,551.65 1.38,558.05 1.41,551.65"/>
+    <junction id="W_HK03" type="dead_end" x="2.81" y="286.01" incLanes="W_HK03_out_0 W_HK03_out_1" intLanes="" shape="2.81,286.01 2.78,292.41 2.81,286.01"/>
+    <junction id="W_HK05" type="dead_end" x="0.00" y="817.28" incLanes="W_HK05_out_0 W_HK05_out_1" intLanes="" shape="0.00,817.28 -0.03,823.68 0.00,817.28"/>
+
+    <junction id=":HK01_16_0" type="internal" x="339.38" y="554.33" incLanes=":HK01_3_0 W_HK01_in_0 W_HK01_in_1" intLanes=":HK01_5_0 :HK01_5_1 :HK01_7_0 :HK01_8_0 :HK01_9_0 :HK01_9_1 :HK01_13_0 :HK01_13_1 :HK01_15_0"/>
+    <junction id=":HK01_17_0" type="internal" x="334.87" y="547.98" incLanes=":HK01_7_0 HK05_HK01_0 HK05_HK01_1" intLanes=":HK01_1_0 :HK01_1_1 :HK01_3_0 :HK01_9_0 :HK01_9_1 :HK01_11_0 :HK01_12_0 :HK01_13_0 :HK01_13_1"/>
+    <junction id=":HK01_18_0" type="internal" x="328.52" y="552.49" incLanes=":HK01_11_0 HK02_HK01_0 HK02_HK01_1" intLanes=":HK01_0_0 :HK01_1_0 :HK01_1_1 :HK01_5_0 :HK01_5_1 :HK01_7_0 :HK01_13_0 :HK01_13_1 :HK01_15_0"/>
+    <junction id=":HK01_19_0" type="internal" x="333.03" y="558.84" incLanes=":HK01_15_0 HK03_HK01_0 HK03_HK01_1" intLanes=":HK01_1_0 :HK01_1_1 :HK01_3_0 :HK01_4_0 :HK01_5_0 :HK01_5_1 :HK01_9_0 :HK01_9_1 :HK01_11_0"/>
+    <junction id=":HK02_16_0" type="internal" x="713.49" y="556.32" incLanes=":HK02_3_0 HK01_HK02_0 HK01_HK02_1" intLanes=":HK02_5_0 :HK02_5_1 :HK02_7_0 :HK02_8_0 :HK02_9_0 :HK02_9_1 :HK02_13_0 :HK02_13_1 :HK02_15_0"/>
+    <junction id=":HK02_17_0" type="internal" x="708.98" y="549.97" incLanes=":HK02_7_0 HK04_HK02_0 HK04_HK02_1" intLanes=":HK02_1_0 :HK02_1_1 :HK02_3_0 :HK02_9_0 :HK02_9_1 :HK02_11_0 :HK02_12_0 :HK02_13_0 :HK02_13_1"/>
+    <junction id=":HK02_18_0" type="internal" x="702.63" y="554.48" incLanes=":HK02_11_0 E_HK02_in_0 E_HK02_in_1" intLanes=":HK02_0_0 :HK02_1_0 :HK02_1_1 :HK02_5_0 :HK02_5_1 :HK02_7_0 :HK02_13_0 :HK02_13_1 :HK02_15_0"/>
+    <junction id=":HK02_19_0" type="internal" x="707.14" y="560.83" incLanes=":HK02_15_0 HK06_HK02_0 HK06_HK02_1" intLanes=":HK02_1_0 :HK02_1_1 :HK02_3_0 :HK02_4_0 :HK02_5_0 :HK02_5_1 :HK02_9_0 :HK02_9_1 :HK02_11_0"/>
+    <junction id=":HK03_16_0" type="internal" x="340.79" y="288.69" incLanes=":HK03_3_0 W_HK03_in_0 W_HK03_in_1" intLanes=":HK03_5_0 :HK03_5_1 :HK03_7_0 :HK03_8_0 :HK03_9_0 :HK03_9_1 :HK03_13_0 :HK03_13_1 :HK03_15_0"/>
+    <junction id=":HK03_17_0" type="internal" x="336.28" y="282.34" incLanes=":HK03_7_0 HK01_HK03_0 HK01_HK03_1" intLanes=":HK03_1_0 :HK03_1_1 :HK03_3_0 :HK03_9_0 :HK03_9_1 :HK03_11_0 :HK03_12_0 :HK03_13_0 :HK03_13_1"/>
+    <junction id=":HK03_18_0" type="internal" x="329.93" y="286.85" incLanes=":HK03_11_0 HK06_HK03_0 HK06_HK03_1" intLanes=":HK03_0_0 :HK03_1_0 :HK03_1_1 :HK03_5_0 :HK03_5_1 :HK03_7_0 :HK03_13_0 :HK03_13_1 :HK03_15_0"/>
+    <junction id=":HK03_19_0" type="internal" x="334.44" y="293.20" incLanes=":HK03_15_0 S_HK03_in_0 S_HK03_in_1" intLanes=":HK03_1_0 :HK03_1_1 :HK03_3_0 :HK03_4_0 :HK03_5_0 :HK03_5_1 :HK03_9_0 :HK03_9_1 :HK03_11_0"/>
+    <junction id=":HK04_16_0" type="internal" x="712.07" y="821.96" incLanes=":HK04_3_0 HK05_HK04_0 HK05_HK04_1" intLanes=":HK04_5_0 :HK04_5_1 :HK04_7_0 :HK04_8_0 :HK04_9_0 :HK04_9_1 :HK04_13_0 :HK04_13_1 :HK04_15_0"/>
+    <junction id=":HK04_17_0" type="internal" x="707.56" y="815.61" incLanes=":HK04_7_0 N_HK04_in_0 N_HK04_in_1" intLanes=":HK04_1_0 :HK04_1_1 :HK04_3_0 :HK04_9_0 :HK04_9_1 :HK04_11_0 :HK04_12_0 :HK04_13_0 :HK04_13_1"/>
+    <junction id=":HK04_18_0" type="internal" x="701.21" y="820.12" incLanes=":HK04_11_0 E_HK04_in_0 E_HK04_in_1" intLanes=":HK04_0_0 :HK04_1_0 :HK04_1_1 :HK04_5_0 :HK04_5_1 :HK04_7_0 :HK04_13_0 :HK04_13_1 :HK04_15_0"/>
+    <junction id=":HK04_19_0" type="internal" x="705.72" y="826.47" incLanes=":HK04_15_0 HK02_HK04_0 HK02_HK04_1" intLanes=":HK04_1_0 :HK04_1_1 :HK04_3_0 :HK04_4_0 :HK04_5_0 :HK04_5_1 :HK04_9_0 :HK04_9_1 :HK04_11_0"/>
+    <junction id=":HK05_16_0" type="internal" x="337.97" y="819.97" incLanes=":HK05_3_0 W_HK05_in_0 W_HK05_in_1" intLanes=":HK05_5_0 :HK05_5_1 :HK05_7_0 :HK05_8_0 :HK05_9_0 :HK05_9_1 :HK05_13_0 :HK05_13_1 :HK05_15_0"/>
+    <junction id=":HK05_17_0" type="internal" x="333.46" y="813.62" incLanes=":HK05_7_0 N_HK05_in_0 N_HK05_in_1" intLanes=":HK05_1_0 :HK05_1_1 :HK05_3_0 :HK05_9_0 :HK05_9_1 :HK05_11_0 :HK05_12_0 :HK05_13_0 :HK05_13_1"/>
+    <junction id=":HK05_18_0" type="internal" x="327.11" y="818.13" incLanes=":HK05_11_0 HK04_HK05_0 HK04_HK05_1" intLanes=":HK05_0_0 :HK05_1_0 :HK05_1_1 :HK05_5_0 :HK05_5_1 :HK05_7_0 :HK05_13_0 :HK05_13_1 :HK05_15_0"/>
+    <junction id=":HK05_19_0" type="internal" x="331.62" y="824.48" incLanes=":HK05_15_0 HK01_HK05_0 HK01_HK05_1" intLanes=":HK05_1_0 :HK05_1_1 :HK05_3_0 :HK05_4_0 :HK05_5_0 :HK05_5_1 :HK05_9_0 :HK05_9_1 :HK05_11_0"/>
+    <junction id=":HK06_16_0" type="internal" x="714.91" y="290.69" incLanes=":HK06_3_0 HK03_HK06_0 HK03_HK06_1" intLanes=":HK06_5_0 :HK06_5_1 :HK06_7_0 :HK06_8_0 :HK06_9_0 :HK06_9_1 :HK06_13_0 :HK06_13_1 :HK06_15_0"/>
+    <junction id=":HK06_17_0" type="internal" x="710.40" y="284.34" incLanes=":HK06_7_0 HK02_HK06_0 HK02_HK06_1" intLanes=":HK06_1_0 :HK06_1_1 :HK06_3_0 :HK06_9_0 :HK06_9_1 :HK06_11_0 :HK06_12_0 :HK06_13_0 :HK06_13_1"/>
+    <junction id=":HK06_18_0" type="internal" x="704.05" y="288.85" incLanes=":HK06_11_0 E_HK06_in_0 E_HK06_in_1" intLanes=":HK06_0_0 :HK06_1_0 :HK06_1_1 :HK06_5_0 :HK06_5_1 :HK06_7_0 :HK06_13_0 :HK06_13_1 :HK06_15_0"/>
+    <junction id=":HK06_19_0" type="internal" x="708.56" y="295.20" incLanes=":HK06_15_0 S_HK06_in_0 S_HK06_in_1" intLanes=":HK06_1_0 :HK06_1_1 :HK06_3_0 :HK06_4_0 :HK06_5_0 :HK06_5_1 :HK06_9_0 :HK06_9_1 :HK06_11_0"/>
+
+    <connection from="E_HK02_in" to="HK02_HK04" fromLane="0" toLane="0" via=":HK02_0_0" tl="HK02" linkIndex="0" dir="r" state="o"/>
+    <connection from="E_HK02_in" to="HK02_HK01" fromLane="0" toLane="0" via=":HK02_1_0" tl="HK02" linkIndex="1" dir="s" state="o"/>
+    <connection from="E_HK02_in" to="HK02_HK01" fromLane="1" toLane="1" via=":HK02_1_1" tl="HK02" linkIndex="2" dir="s" state="o"/>
+    <connection from="E_HK02_in" to="HK02_HK06" fromLane="1" toLane="1" via=":HK02_3_0" tl="HK02" linkIndex="3" dir="l" state="o"/>
+    <connection from="E_HK04_in" to="N_HK04_out" fromLane="0" toLane="0" via=":HK04_0_0" tl="HK04" linkIndex="0" dir="r" state="o"/>
+    <connection from="E_HK04_in" to="HK04_HK05" fromLane="0" toLane="0" via=":HK04_1_0" tl="HK04" linkIndex="1" dir="s" state="o"/>
+    <connection from="E_HK04_in" to="HK04_HK05" fromLane="1" toLane="1" via=":HK04_1_1" tl="HK04" linkIndex="2" dir="s" state="o"/>
+    <connection from="E_HK04_in" to="HK04_HK02" fromLane="1" toLane="1" via=":HK04_3_0" tl="HK04" linkIndex="3" dir="l" state="o"/>
+    <connection from="E_HK06_in" to="HK06_HK02" fromLane="0" toLane="0" via=":HK06_0_0" tl="HK06" linkIndex="0" dir="r" state="o"/>
+    <connection from="E_HK06_in" to="HK06_HK03" fromLane="0" toLane="0" via=":HK06_1_0" tl="HK06" linkIndex="1" dir="s" state="o"/>
+    <connection from="E_HK06_in" to="HK06_HK03" fromLane="1" toLane="1" via=":HK06_1_1" tl="HK06" linkIndex="2" dir="s" state="o"/>
+    <connection from="E_HK06_in" to="S_HK06_out" fromLane="1" toLane="1" via=":HK06_3_0" tl="HK06" linkIndex="3" dir="l" state="o"/>
+    <connection from="HK01_HK02" to="HK02_HK06" fromLane="0" toLane="0" via=":HK02_8_0" tl="HK02" linkIndex="8" dir="r" state="o"/>
+    <connection from="HK01_HK02" to="E_HK02_out" fromLane="0" toLane="0" via=":HK02_9_0" tl="HK02" linkIndex="9" dir="s" state="o"/>
+    <connection from="HK01_HK02" to="E_HK02_out" fromLane="1" toLane="1" via=":HK02_9_1" tl="HK02" linkIndex="10" dir="s" state="o"/>
+    <connection from="HK01_HK02" to="HK02_HK04" fromLane="1" toLane="1" via=":HK02_11_0" tl="HK02" linkIndex="11" dir="l" state="o"/>
+    <connection from="HK01_HK03" to="W_HK03_out" fromLane="0" toLane="0" via=":HK03_12_0" tl="HK03" linkIndex="12" dir="r" state="O"/>
+    <connection from="HK01_HK03" to="S_HK03_out" fromLane="0" toLane="0" via=":HK03_13_0" tl="HK03" linkIndex="13" dir="s" state="O"/>
+    <connection from="HK01_HK03" to="S_HK03_out" fromLane="1" toLane="1" via=":HK03_13_1" tl="HK03" linkIndex="14" dir="s" state="O"/>
+    <connection from="HK01_HK03" to="HK03_HK06" fromLane="1" toLane="1" via=":HK03_15_0" tl="HK03" linkIndex="15" dir="l" state="o"/>
+    <connection from="HK01_HK05" to="HK05_HK04" fromLane="0" toLane="0" via=":HK05_4_0" tl="HK05" linkIndex="4" dir="r" state="o"/>
+    <connection from="HK01_HK05" to="N_HK05_out" fromLane="0" toLane="0" via=":HK05_5_0" tl="HK05" linkIndex="5" dir="s" state="o"/>
+    <connection from="HK01_HK05" to="N_HK05_out" fromLane="1" toLane="1" via=":HK05_5_1" tl="HK05" linkIndex="6" dir="s" state="o"/>
+    <connection from="HK01_HK05" to="W_HK05_out" fromLane="1" toLane="1" via=":HK05_7_0" tl="HK05" linkIndex="7" dir="l" state="o"/>
+    <connection from="HK02_HK01" to="HK01_HK05" fromLane="0" toLane="0" via=":HK01_0_0" tl="HK01" linkIndex="0" dir="r" state="o"/>
+    <connection from="HK02_HK01" to="W_HK01_out" fromLane="0" toLane="0" via=":HK01_1_0" tl="HK01" linkIndex="1" dir="s" state="o"/>
+    <connection from="HK02_HK01" to="W_HK01_out" fromLane="1" toLane="1" via=":HK01_1_1" tl="HK01" linkIndex="2" dir="s" state="o"/>
+    <connection from="HK02_HK01" to="HK01_HK03" fromLane="1" toLane="1" via=":HK01_3_0" tl="HK01" linkIndex="3" dir="l" state="o"/>
+    <connection from="HK02_HK04" to="E_HK04_out" fromLane="0" toLane="0" via=":HK04_4_0" tl="HK04" linkIndex="4" dir="r" state="O"/>
+    <connection from="HK02_HK04" to="N_HK04_out" fromLane="0" toLane="0" via=":HK04_5_0" tl="HK04" linkIndex="5" dir="s" state="O"/>
+    <connection from="HK02_HK04" to="N_HK04_out" fromLane="1" toLane="1" via=":HK04_5_1" tl="HK04" linkIndex="6" dir="s" state="O"/>
+    <connection from="HK02_HK04" to="HK04_HK05" fromLane="1" toLane="1" via=":HK04_7_0" tl="HK04" linkIndex="7" dir="l" state="o"/>
+    <connection from="HK02_HK06" to="HK06_HK03" fromLane="0" toLane="0" via=":HK06_12_0" tl="HK06" linkIndex="12" dir="r" state="O"/>
+    <connection from="HK02_HK06" to="S_HK06_out" fromLane="0" toLane="0" via=":HK06_13_0" tl="HK06" linkIndex="13" dir="s" state="O"/>
+    <connection from="HK02_HK06" to="S_HK06_out" fromLane="1" toLane="1" via=":HK06_13_1" tl="HK06" linkIndex="14" dir="s" state="O"/>
+    <connection from="HK02_HK06" to="E_HK06_out" fromLane="1" toLane="1" via=":HK06_15_0" tl="HK06" linkIndex="15" dir="l" state="o"/>
+    <connection from="HK03_HK01" to="HK01_HK02" fromLane="0" toLane="0" via=":HK01_4_0" tl="HK01" linkIndex="4" dir="r" state="O"/>
+    <connection from="HK03_HK01" to="HK01_HK05" fromLane="0" toLane="0" via=":HK01_5_0" tl="HK01" linkIndex="5" dir="s" state="O"/>
+    <connection from="HK03_HK01" to="HK01_HK05" fromLane="1" toLane="1" via=":HK01_5_1" tl="HK01" linkIndex="6" dir="s" state="O"/>
+    <connection from="HK03_HK01" to="W_HK01_out" fromLane="1" toLane="1" via=":HK01_7_0" tl="HK01" linkIndex="7" dir="l" state="o"/>
+    <connection from="HK03_HK06" to="S_HK06_out" fromLane="0" toLane="0" via=":HK06_8_0" tl="HK06" linkIndex="8" dir="r" state="o"/>
+    <connection from="HK03_HK06" to="E_HK06_out" fromLane="0" toLane="0" via=":HK06_9_0" tl="HK06" linkIndex="9" dir="s" state="o"/>
+    <connection from="HK03_HK06" to="E_HK06_out" fromLane="1" toLane="1" via=":HK06_9_1" tl="HK06" linkIndex="10" dir="s" state="o"/>
+    <connection from="HK03_HK06" to="HK06_HK02" fromLane="1" toLane="1" via=":HK06_11_0" tl="HK06" linkIndex="11" dir="l" state="o"/>
+    <connection from="HK04_HK02" to="HK02_HK01" fromLane="0" toLane="0" via=":HK02_12_0" tl="HK02" linkIndex="12" dir="r" state="O"/>
+    <connection from="HK04_HK02" to="HK02_HK06" fromLane="0" toLane="0" via=":HK02_13_0" tl="HK02" linkIndex="13" dir="s" state="O"/>
+    <connection from="HK04_HK02" to="HK02_HK06" fromLane="1" toLane="1" via=":HK02_13_1" tl="HK02" linkIndex="14" dir="s" state="O"/>
+    <connection from="HK04_HK02" to="E_HK02_out" fromLane="1" toLane="1" via=":HK02_15_0" tl="HK02" linkIndex="15" dir="l" state="o"/>
+    <connection from="HK04_HK05" to="N_HK05_out" fromLane="0" toLane="0" via=":HK05_0_0" tl="HK05" linkIndex="0" dir="r" state="O"/>
+    <connection from="HK04_HK05" to="W_HK05_out" fromLane="0" toLane="0" via=":HK05_1_0" tl="HK05" linkIndex="1" dir="s" state="O"/>
+    <connection from="HK04_HK05" to="W_HK05_out" fromLane="1" toLane="1" via=":HK05_1_1" tl="HK05" linkIndex="2" dir="s" state="O"/>
+    <connection from="HK04_HK05" to="HK05_HK01" fromLane="1" toLane="1" via=":HK05_3_0" tl="HK05" linkIndex="3" dir="l" state="o"/>
+    <connection from="HK05_HK01" to="W_HK01_out" fromLane="0" toLane="0" via=":HK01_12_0" tl="HK01" linkIndex="12" dir="r" state="O"/>
+    <connection from="HK05_HK01" to="HK01_HK03" fromLane="0" toLane="0" via=":HK01_13_0" tl="HK01" linkIndex="13" dir="s" state="O"/>
+    <connection from="HK05_HK01" to="HK01_HK03" fromLane="1" toLane="1" via=":HK01_13_1" tl="HK01" linkIndex="14" dir="s" state="O"/>
+    <connection from="HK05_HK01" to="HK01_HK02" fromLane="1" toLane="1" via=":HK01_15_0" tl="HK01" linkIndex="15" dir="l" state="o"/>
+    <connection from="HK05_HK04" to="HK04_HK02" fromLane="0" toLane="0" via=":HK04_8_0" tl="HK04" linkIndex="8" dir="r" state="o"/>
+    <connection from="HK05_HK04" to="E_HK04_out" fromLane="0" toLane="0" via=":HK04_9_0" tl="HK04" linkIndex="9" dir="s" state="o"/>
+    <connection from="HK05_HK04" to="E_HK04_out" fromLane="1" toLane="1" via=":HK04_9_1" tl="HK04" linkIndex="10" dir="s" state="o"/>
+    <connection from="HK05_HK04" to="N_HK04_out" fromLane="1" toLane="1" via=":HK04_11_0" tl="HK04" linkIndex="11" dir="l" state="o"/>
+    <connection from="HK06_HK02" to="E_HK02_out" fromLane="0" toLane="0" via=":HK02_4_0" tl="HK02" linkIndex="4" dir="r" state="O"/>
+    <connection from="HK06_HK02" to="HK02_HK04" fromLane="0" toLane="0" via=":HK02_5_0" tl="HK02" linkIndex="5" dir="s" state="O"/>
+    <connection from="HK06_HK02" to="HK02_HK04" fromLane="1" toLane="1" via=":HK02_5_1" tl="HK02" linkIndex="6" dir="s" state="O"/>
+    <connection from="HK06_HK02" to="HK02_HK01" fromLane="1" toLane="1" via=":HK02_7_0" tl="HK02" linkIndex="7" dir="l" state="o"/>
+    <connection from="HK06_HK03" to="HK03_HK01" fromLane="0" toLane="0" via=":HK03_0_0" tl="HK03" linkIndex="0" dir="r" state="o"/>
+    <connection from="HK06_HK03" to="W_HK03_out" fromLane="0" toLane="0" via=":HK03_1_0" tl="HK03" linkIndex="1" dir="s" state="o"/>
+    <connection from="HK06_HK03" to="W_HK03_out" fromLane="1" toLane="1" via=":HK03_1_1" tl="HK03" linkIndex="2" dir="s" state="o"/>
+    <connection from="HK06_HK03" to="S_HK03_out" fromLane="1" toLane="1" via=":HK03_3_0" tl="HK03" linkIndex="3" dir="l" state="o"/>
+    <connection from="N_HK04_in" to="HK04_HK05" fromLane="0" toLane="0" via=":HK04_12_0" tl="HK04" linkIndex="12" dir="r" state="O"/>
+    <connection from="N_HK04_in" to="HK04_HK02" fromLane="0" toLane="0" via=":HK04_13_0" tl="HK04" linkIndex="13" dir="s" state="O"/>
+    <connection from="N_HK04_in" to="HK04_HK02" fromLane="1" toLane="1" via=":HK04_13_1" tl="HK04" linkIndex="14" dir="s" state="O"/>
+    <connection from="N_HK04_in" to="E_HK04_out" fromLane="1" toLane="1" via=":HK04_15_0" tl="HK04" linkIndex="15" dir="l" state="o"/>
+    <connection from="N_HK05_in" to="W_HK05_out" fromLane="0" toLane="0" via=":HK05_12_0" tl="HK05" linkIndex="12" dir="r" state="o"/>
+    <connection from="N_HK05_in" to="HK05_HK01" fromLane="0" toLane="0" via=":HK05_13_0" tl="HK05" linkIndex="13" dir="s" state="o"/>
+    <connection from="N_HK05_in" to="HK05_HK01" fromLane="1" toLane="1" via=":HK05_13_1" tl="HK05" linkIndex="14" dir="s" state="o"/>
+    <connection from="N_HK05_in" to="HK05_HK04" fromLane="1" toLane="1" via=":HK05_15_0" tl="HK05" linkIndex="15" dir="l" state="o"/>
+    <connection from="S_HK03_in" to="HK03_HK06" fromLane="0" toLane="0" via=":HK03_4_0" tl="HK03" linkIndex="4" dir="r" state="O"/>
+    <connection from="S_HK03_in" to="HK03_HK01" fromLane="0" toLane="0" via=":HK03_5_0" tl="HK03" linkIndex="5" dir="s" state="O"/>
+    <connection from="S_HK03_in" to="HK03_HK01" fromLane="1" toLane="1" via=":HK03_5_1" tl="HK03" linkIndex="6" dir="s" state="O"/>
+    <connection from="S_HK03_in" to="W_HK03_out" fromLane="1" toLane="1" via=":HK03_7_0" tl="HK03" linkIndex="7" dir="l" state="o"/>
+    <connection from="S_HK06_in" to="E_HK06_out" fromLane="0" toLane="0" via=":HK06_4_0" tl="HK06" linkIndex="4" dir="r" state="O"/>
+    <connection from="S_HK06_in" to="HK06_HK02" fromLane="0" toLane="0" via=":HK06_5_0" tl="HK06" linkIndex="5" dir="s" state="O"/>
+    <connection from="S_HK06_in" to="HK06_HK02" fromLane="1" toLane="1" via=":HK06_5_1" tl="HK06" linkIndex="6" dir="s" state="O"/>
+    <connection from="S_HK06_in" to="HK06_HK03" fromLane="1" toLane="1" via=":HK06_7_0" tl="HK06" linkIndex="7" dir="l" state="o"/>
+    <connection from="W_HK01_in" to="HK01_HK03" fromLane="0" toLane="0" via=":HK01_8_0" tl="HK01" linkIndex="8" dir="r" state="o"/>
+    <connection from="W_HK01_in" to="HK01_HK02" fromLane="0" toLane="0" via=":HK01_9_0" tl="HK01" linkIndex="9" dir="s" state="o"/>
+    <connection from="W_HK01_in" to="HK01_HK02" fromLane="1" toLane="1" via=":HK01_9_1" tl="HK01" linkIndex="10" dir="s" state="o"/>
+    <connection from="W_HK01_in" to="HK01_HK05" fromLane="1" toLane="1" via=":HK01_11_0" tl="HK01" linkIndex="11" dir="l" state="o"/>
+    <connection from="W_HK03_in" to="S_HK03_out" fromLane="0" toLane="0" via=":HK03_8_0" tl="HK03" linkIndex="8" dir="r" state="o"/>
+    <connection from="W_HK03_in" to="HK03_HK06" fromLane="0" toLane="0" via=":HK03_9_0" tl="HK03" linkIndex="9" dir="s" state="o"/>
+    <connection from="W_HK03_in" to="HK03_HK06" fromLane="1" toLane="1" via=":HK03_9_1" tl="HK03" linkIndex="10" dir="s" state="o"/>
+    <connection from="W_HK03_in" to="HK03_HK01" fromLane="1" toLane="1" via=":HK03_11_0" tl="HK03" linkIndex="11" dir="l" state="o"/>
+    <connection from="W_HK05_in" to="HK05_HK01" fromLane="0" toLane="0" via=":HK05_8_0" tl="HK05" linkIndex="8" dir="r" state="O"/>
+    <connection from="W_HK05_in" to="HK05_HK04" fromLane="0" toLane="0" via=":HK05_9_0" tl="HK05" linkIndex="9" dir="s" state="O"/>
+    <connection from="W_HK05_in" to="HK05_HK04" fromLane="1" toLane="1" via=":HK05_9_1" tl="HK05" linkIndex="10" dir="s" state="O"/>
+    <connection from="W_HK05_in" to="N_HK05_out" fromLane="1" toLane="1" via=":HK05_11_0" tl="HK05" linkIndex="11" dir="l" state="o"/>
+
+    <connection from=":HK01_0" to="HK01_HK05" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK01_1" to="W_HK01_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK01_1" to="W_HK01_out" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK01_3" to="HK01_HK03" fromLane="0" toLane="1" via=":HK01_16_0" dir="l" state="m"/>
+    <connection from=":HK01_16" to="HK01_HK03" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK01_4" to="HK01_HK02" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK01_5" to="HK01_HK05" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK01_5" to="HK01_HK05" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK01_7" to="W_HK01_out" fromLane="0" toLane="1" via=":HK01_17_0" dir="l" state="m"/>
+    <connection from=":HK01_17" to="W_HK01_out" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK01_8" to="HK01_HK03" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK01_9" to="HK01_HK02" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK01_9" to="HK01_HK02" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK01_11" to="HK01_HK05" fromLane="0" toLane="1" via=":HK01_18_0" dir="l" state="m"/>
+    <connection from=":HK01_18" to="HK01_HK05" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK01_12" to="W_HK01_out" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK01_13" to="HK01_HK03" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK01_13" to="HK01_HK03" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK01_15" to="HK01_HK02" fromLane="0" toLane="1" via=":HK01_19_0" dir="l" state="m"/>
+    <connection from=":HK01_19" to="HK01_HK02" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK02_0" to="HK02_HK04" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK02_1" to="HK02_HK01" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK02_1" to="HK02_HK01" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK02_3" to="HK02_HK06" fromLane="0" toLane="1" via=":HK02_16_0" dir="l" state="m"/>
+    <connection from=":HK02_16" to="HK02_HK06" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK02_4" to="E_HK02_out" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK02_5" to="HK02_HK04" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK02_5" to="HK02_HK04" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK02_7" to="HK02_HK01" fromLane="0" toLane="1" via=":HK02_17_0" dir="l" state="m"/>
+    <connection from=":HK02_17" to="HK02_HK01" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK02_8" to="HK02_HK06" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK02_9" to="E_HK02_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK02_9" to="E_HK02_out" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK02_11" to="HK02_HK04" fromLane="0" toLane="1" via=":HK02_18_0" dir="l" state="m"/>
+    <connection from=":HK02_18" to="HK02_HK04" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK02_12" to="HK02_HK01" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK02_13" to="HK02_HK06" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK02_13" to="HK02_HK06" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK02_15" to="E_HK02_out" fromLane="0" toLane="1" via=":HK02_19_0" dir="l" state="m"/>
+    <connection from=":HK02_19" to="E_HK02_out" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK03_0" to="HK03_HK01" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK03_1" to="W_HK03_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK03_1" to="W_HK03_out" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK03_3" to="S_HK03_out" fromLane="0" toLane="1" via=":HK03_16_0" dir="l" state="m"/>
+    <connection from=":HK03_16" to="S_HK03_out" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK03_4" to="HK03_HK06" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK03_5" to="HK03_HK01" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK03_5" to="HK03_HK01" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK03_7" to="W_HK03_out" fromLane="0" toLane="1" via=":HK03_17_0" dir="l" state="m"/>
+    <connection from=":HK03_17" to="W_HK03_out" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK03_8" to="S_HK03_out" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK03_9" to="HK03_HK06" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK03_9" to="HK03_HK06" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK03_11" to="HK03_HK01" fromLane="0" toLane="1" via=":HK03_18_0" dir="l" state="m"/>
+    <connection from=":HK03_18" to="HK03_HK01" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK03_12" to="W_HK03_out" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK03_13" to="S_HK03_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK03_13" to="S_HK03_out" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK03_15" to="HK03_HK06" fromLane="0" toLane="1" via=":HK03_19_0" dir="l" state="m"/>
+    <connection from=":HK03_19" to="HK03_HK06" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK04_0" to="N_HK04_out" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK04_1" to="HK04_HK05" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK04_1" to="HK04_HK05" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK04_3" to="HK04_HK02" fromLane="0" toLane="1" via=":HK04_16_0" dir="l" state="m"/>
+    <connection from=":HK04_16" to="HK04_HK02" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK04_4" to="E_HK04_out" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK04_5" to="N_HK04_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK04_5" to="N_HK04_out" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK04_7" to="HK04_HK05" fromLane="0" toLane="1" via=":HK04_17_0" dir="l" state="m"/>
+    <connection from=":HK04_17" to="HK04_HK05" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK04_8" to="HK04_HK02" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK04_9" to="E_HK04_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK04_9" to="E_HK04_out" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK04_11" to="N_HK04_out" fromLane="0" toLane="1" via=":HK04_18_0" dir="l" state="m"/>
+    <connection from=":HK04_18" to="N_HK04_out" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK04_12" to="HK04_HK05" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK04_13" to="HK04_HK02" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK04_13" to="HK04_HK02" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK04_15" to="E_HK04_out" fromLane="0" toLane="1" via=":HK04_19_0" dir="l" state="m"/>
+    <connection from=":HK04_19" to="E_HK04_out" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK05_0" to="N_HK05_out" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK05_1" to="W_HK05_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK05_1" to="W_HK05_out" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK05_3" to="HK05_HK01" fromLane="0" toLane="1" via=":HK05_16_0" dir="l" state="m"/>
+    <connection from=":HK05_16" to="HK05_HK01" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK05_4" to="HK05_HK04" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK05_5" to="N_HK05_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK05_5" to="N_HK05_out" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK05_7" to="W_HK05_out" fromLane="0" toLane="1" via=":HK05_17_0" dir="l" state="m"/>
+    <connection from=":HK05_17" to="W_HK05_out" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK05_8" to="HK05_HK01" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK05_9" to="HK05_HK04" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK05_9" to="HK05_HK04" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK05_11" to="N_HK05_out" fromLane="0" toLane="1" via=":HK05_18_0" dir="l" state="m"/>
+    <connection from=":HK05_18" to="N_HK05_out" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK05_12" to="W_HK05_out" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK05_13" to="HK05_HK01" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK05_13" to="HK05_HK01" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK05_15" to="HK05_HK04" fromLane="0" toLane="1" via=":HK05_19_0" dir="l" state="m"/>
+    <connection from=":HK05_19" to="HK05_HK04" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK06_0" to="HK06_HK02" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK06_1" to="HK06_HK03" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK06_1" to="HK06_HK03" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK06_3" to="S_HK06_out" fromLane="0" toLane="1" via=":HK06_16_0" dir="l" state="m"/>
+    <connection from=":HK06_16" to="S_HK06_out" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK06_4" to="E_HK06_out" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK06_5" to="HK06_HK02" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK06_5" to="HK06_HK02" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK06_7" to="HK06_HK03" fromLane="0" toLane="1" via=":HK06_17_0" dir="l" state="m"/>
+    <connection from=":HK06_17" to="HK06_HK03" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK06_8" to="S_HK06_out" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK06_9" to="E_HK06_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK06_9" to="E_HK06_out" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK06_11" to="HK06_HK02" fromLane="0" toLane="1" via=":HK06_18_0" dir="l" state="m"/>
+    <connection from=":HK06_18" to="HK06_HK02" fromLane="0" toLane="1" dir="l" state="M"/>
+    <connection from=":HK06_12" to="HK06_HK03" fromLane="0" toLane="0" dir="r" state="M"/>
+    <connection from=":HK06_13" to="S_HK06_out" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from=":HK06_13" to="S_HK06_out" fromLane="1" toLane="1" dir="s" state="M"/>
+    <connection from=":HK06_15" to="E_HK06_out" fromLane="0" toLane="1" via=":HK06_19_0" dir="l" state="m"/>
+    <connection from=":HK06_19" to="E_HK06_out" fromLane="0" toLane="1" dir="l" state="M"/>
+
+</net>

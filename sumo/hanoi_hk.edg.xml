@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FlowMind AI - Hanoi Hoan Kiem 6-intersection grid (edge definitions) -->
+<edges>
+    <!-- ══════ Internal grid roads (bidirectional) ══════ -->
+
+    <!-- Horizontal: Row 1 (top) HK05 ↔ HK04 -->
+    <edge id="HK05_HK04" from="HK05" to="HK04" numLanes="2" speed="13.89"/>
+    <edge id="HK04_HK05" from="HK04" to="HK05" numLanes="2" speed="13.89"/>
+
+    <!-- Horizontal: Row 2 (middle) HK01 ↔ HK02 -->
+    <edge id="HK01_HK02" from="HK01" to="HK02" numLanes="2" speed="13.89"/>
+    <edge id="HK02_HK01" from="HK02" to="HK01" numLanes="2" speed="13.89"/>
+
+    <!-- Horizontal: Row 3 (bottom) HK03 ↔ HK06 -->
+    <edge id="HK03_HK06" from="HK03" to="HK06" numLanes="2" speed="13.89"/>
+    <edge id="HK06_HK03" from="HK06" to="HK03" numLanes="2" speed="13.89"/>
+
+    <!-- Vertical: Col 1 (left) HK05 ↔ HK01 ↔ HK03 -->
+    <edge id="HK05_HK01" from="HK05" to="HK01" numLanes="2" speed="13.89"/>
+    <edge id="HK01_HK05" from="HK01" to="HK05" numLanes="2" speed="13.89"/>
+    <edge id="HK01_HK03" from="HK01" to="HK03" numLanes="2" speed="13.89"/>
+    <edge id="HK03_HK01" from="HK03" to="HK01" numLanes="2" speed="13.89"/>
+
+    <!-- Vertical: Col 2 (right) HK04 ↔ HK02 ↔ HK06 -->
+    <edge id="HK04_HK02" from="HK04" to="HK02" numLanes="2" speed="13.89"/>
+    <edge id="HK02_HK04" from="HK02" to="HK04" numLanes="2" speed="13.89"/>
+    <edge id="HK02_HK06" from="HK02" to="HK06" numLanes="2" speed="13.89"/>
+    <edge id="HK06_HK02" from="HK06" to="HK02" numLanes="2" speed="13.89"/>
+
+    <!-- ══════ Boundary stubs (entry/exit) ══════ -->
+
+    <!-- North boundary -->
+    <edge id="N_HK05_in"  from="N_HK05" to="HK05" numLanes="2" speed="13.89"/>
+    <edge id="N_HK05_out" from="HK05" to="N_HK05" numLanes="2" speed="13.89"/>
+    <edge id="N_HK04_in"  from="N_HK04" to="HK04" numLanes="2" speed="13.89"/>
+    <edge id="N_HK04_out" from="HK04" to="N_HK04" numLanes="2" speed="13.89"/>
+
+    <!-- South boundary -->
+    <edge id="S_HK03_in"  from="S_HK03" to="HK03" numLanes="2" speed="13.89"/>
+    <edge id="S_HK03_out" from="HK03" to="S_HK03" numLanes="2" speed="13.89"/>
+    <edge id="S_HK06_in"  from="S_HK06" to="HK06" numLanes="2" speed="13.89"/>
+    <edge id="S_HK06_out" from="HK06" to="S_HK06" numLanes="2" speed="13.89"/>
+
+    <!-- West boundary -->
+    <edge id="W_HK05_in"  from="W_HK05" to="HK05" numLanes="2" speed="13.89"/>
+    <edge id="W_HK05_out" from="HK05" to="W_HK05" numLanes="2" speed="13.89"/>
+    <edge id="W_HK01_in"  from="W_HK01" to="HK01" numLanes="2" speed="13.89"/>
+    <edge id="W_HK01_out" from="HK01" to="W_HK01" numLanes="2" speed="13.89"/>
+    <edge id="W_HK03_in"  from="W_HK03" to="HK03" numLanes="2" speed="13.89"/>
+    <edge id="W_HK03_out" from="HK03" to="W_HK03" numLanes="2" speed="13.89"/>
+
+    <!-- East boundary -->
+    <edge id="E_HK04_in"  from="E_HK04" to="HK04" numLanes="2" speed="13.89"/>
+    <edge id="E_HK04_out" from="HK04" to="E_HK04" numLanes="2" speed="13.89"/>
+    <edge id="E_HK02_in"  from="E_HK02" to="HK02" numLanes="2" speed="13.89"/>
+    <edge id="E_HK02_out" from="HK02" to="E_HK02" numLanes="2" speed="13.89"/>
+    <edge id="E_HK06_in"  from="E_HK06" to="HK06" numLanes="2" speed="13.89"/>
+    <edge id="E_HK06_out" from="HK06" to="E_HK06" numLanes="2" speed="13.89"/>
+</edges>

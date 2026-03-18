@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FlowMind AI - Vietnamese vehicle types for Da Nang -->
+<additional>
+    <!-- Motorbikes (dominant in Vietnamese traffic) -->
+    <vType id="motorbike" vClass="motorcycle" length="2.2" width="0.8"
+           maxSpeed="11.11" accel="3.0" decel="4.5" sigma="0.7"
+           speedFactor="1.0" speedDev="0.15"
+           color="0.9,0.7,0.2" guiShape="motorcycle"/>
+
+    <vType id="motorbike2" vClass="motorcycle" length="2.0" width="0.7"
+           maxSpeed="12.50" accel="3.5" decel="5.0" sigma="0.8"
+           speedFactor="1.1" speedDev="0.2"
+           color="0.2,0.6,0.9" guiShape="motorcycle"/>
+
+    <!-- Cars -->
+    <vType id="car" vClass="passenger" length="4.5" width="1.8"
+           maxSpeed="13.89" accel="2.5" decel="4.0" sigma="0.5"
+           speedFactor="1.0" speedDev="0.1"
+           color="0.2,0.6,0.9" guiShape="passenger"/>
+
+    <vType id="car_suv" vClass="passenger" length="4.8" width="2.0"
+           maxSpeed="13.89" accel="2.2" decel="3.8" sigma="0.5"
+           speedFactor="1.0" speedDev="0.1"
+           color="0.8,0.2,0.2" guiShape="passenger/sedan"/>
+
+    <vType id="taxi" vClass="passenger" length="4.5" width="1.8"
+           maxSpeed="13.89" accel="2.5" decel="4.0" sigma="0.4"
+           speedFactor="0.9" speedDev="0.1"
+           color="1.0,1.0,0.2" guiShape="passenger/sedan"/>
+
+    <!-- Buses -->
+    <vType id="bus" vClass="bus" length="12.0" width="2.5"
+           maxSpeed="11.11" accel="1.5" decel="3.0" sigma="0.4"
+           speedFactor="0.8" speedDev="0.05"
+           color="0.2,0.8,0.3" guiShape="bus"/>
+
+    <!-- Trucks -->
+    <vType id="truck" vClass="truck" length="10.0" width="2.5"
+           maxSpeed="8.33" accel="1.2" decel="3.0" sigma="0.4"
+           speedFactor="0.7" speedDev="0.1"
+           color="0.7,0.3,0.3" guiShape="truck"/>
+
+    <vType id="delivery" vClass="truck" length="6.0" width="2.2"
+           maxSpeed="11.11" accel="1.8" decel="3.5" sigma="0.5"
+           speedFactor="0.85" speedDev="0.1"
+           color="0.6,0.4,0.2" guiShape="truck"/>
+</additional>

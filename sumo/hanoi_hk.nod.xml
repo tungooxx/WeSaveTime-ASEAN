@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FlowMind AI - Hanoi Hoan Kiem 6-intersection grid (node definitions) -->
+<!-- Coordinates are geographic (lon, lat) — netconvert will project them -->
+<nodes>
+    <!-- Row 1 (top): HK05 — HK04 -->
+    <node id="HK05" x="105.84920" y="21.02740" type="traffic_light"/>
+    <node id="HK04" x="105.85280" y="21.02740" type="traffic_light"/>
+
+    <!-- Row 2 (middle): HK01 — HK02 -->
+    <node id="HK01" x="105.84920" y="21.02500" type="traffic_light"/>
+    <node id="HK02" x="105.85280" y="21.02500" type="traffic_light"/>
+
+    <!-- Row 3 (bottom): HK03 — HK06 -->
+    <node id="HK03" x="105.84920" y="21.02260" type="traffic_light"/>
+    <node id="HK06" x="105.85280" y="21.02260" type="traffic_light"/>
+
+    <!-- Boundary nodes for vehicle entry/exit (dead-end stubs) -->
+    <node id="N_HK05" x="105.84920" y="21.03000" type="priority"/>
+    <node id="N_HK04" x="105.85280" y="21.03000" type="priority"/>
+    <node id="S_HK03" x="105.84920" y="21.02000" type="priority"/>
+    <node id="S_HK06" x="105.85280" y="21.02000" type="priority"/>
+    <node id="W_HK05" x="105.84600" y="21.02740" type="priority"/>
+    <node id="W_HK01" x="105.84600" y="21.02500" type="priority"/>
+    <node id="W_HK03" x="105.84600" y="21.02260" type="priority"/>
+    <node id="E_HK04" x="105.85600" y="21.02740" type="priority"/>
+    <node id="E_HK02" x="105.85600" y="21.02500" type="priority"/>
+    <node id="E_HK06" x="105.85600" y="21.02260" type="priority"/>
+</nodes>

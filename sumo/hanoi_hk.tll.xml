@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FlowMind AI - Traffic light programs for 6 Hoan Kiem intersections -->
+<!-- Phase scheme: NS green → NS yellow → EW green → EW yellow -->
+<!-- Each intersection has 4 approaches; link indices follow netconvert ordering -->
+<tlLogics>
+    <!-- HK01: Hang Bai / Trang Thi -->
+    <tlLogic id="HK01" type="static" programID="0" offset="0">
+        <phase duration="30" state="GGrrGGrr"/>  <!-- NS green -->
+        <phase duration="3"  state="yyrryyrr"/>  <!-- NS yellow -->
+        <phase duration="30" state="rrGGrrGG"/>  <!-- EW green -->
+        <phase duration="3"  state="rryyrrYY"/>  <!-- EW yellow -->
+    </tlLogic>
+
+    <!-- HK02: Hang Khay / Dinh Tien Hoang -->
+    <tlLogic id="HK02" type="static" programID="0" offset="5">
+        <phase duration="30" state="GGrrGGrr"/>
+        <phase duration="3"  state="yyrryyrr"/>
+        <phase duration="30" state="rrGGrrGG"/>
+        <phase duration="3"  state="rryyrrYY"/>
+    </tlLogic>
+
+    <!-- HK03: Ba Trieu / Hai Ba Trung -->
+    <tlLogic id="HK03" type="static" programID="0" offset="0">
+        <phase duration="30" state="GGrrGGrr"/>
+        <phase duration="3"  state="yyrryyrr"/>
+        <phase duration="30" state="rrGGrrGG"/>
+        <phase duration="3"  state="rryyrrYY"/>
+    </tlLogic>
+
+    <!-- HK04: Le Thai To / Hang Trong -->
+    <tlLogic id="HK04" type="static" programID="0" offset="5">
+        <phase duration="30" state="GGrrGGrr"/>
+        <phase duration="3"  state="yyrryyrr"/>
+        <phase duration="30" state="rrGGrrGG"/>
+        <phase duration="3"  state="rryyrrYY"/>
+    </tlLogic>
+
+    <!-- HK05: Trang Tien / Ngo Quyen -->
+    <tlLogic id="HK05" type="static" programID="0" offset="0">
+        <phase duration="30" state="GGrrGGrr"/>
+        <phase duration="3"  state="yyrryyrr"/>
+        <phase duration="30" state="rrGGrrGG"/>
+        <phase duration="3"  state="rryyrrYY"/>
+    </tlLogic>
+
+    <!-- HK06: Ly Thuong Kiet / Quang Trung -->
+    <tlLogic id="HK06" type="static" programID="0" offset="5">
+        <phase duration="30" state="GGrrGGrr"/>
+        <phase duration="3"  state="yyrryyrr"/>
+        <phase duration="30" state="rrGGrrGG"/>
+        <phase duration="3"  state="rryyrrYY"/>
+    </tlLogic>
+</tlLogics>

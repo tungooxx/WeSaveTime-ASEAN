@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FlowMind AI - Vehicle types and traffic flows for Hoan Kiem grid -->
+<routes>
+    <!-- ══════ Vehicle types (Vietnamese traffic mix) ══════ -->
+    <vType id="motorbike" vClass="motorcycle" length="2.2" width="0.8"
+           maxSpeed="11.11" accel="3.0" decel="4.5" sigma="0.7"
+           color="0.9,0.7,0.2"/>
+    <vType id="car" vClass="passenger" length="4.5" width="1.8"
+           maxSpeed="13.89" accel="2.5" decel="4.0" sigma="0.5"
+           color="0.2,0.6,0.9"/>
+    <vType id="bus" vClass="bus" length="12.0" width="2.5"
+           maxSpeed="9.72" accel="1.5" decel="3.0" sigma="0.4"
+           color="0.2,0.8,0.3"/>
+    <vType id="truck" vClass="truck" length="10.0" width="2.5"
+           maxSpeed="8.33" accel="1.2" decel="3.0" sigma="0.4"
+           color="0.7,0.3,0.3"/>
+
+    <!-- ══════ Routes (through-traffic on the grid) ══════ -->
+
+    <!-- North → South -->
+    <route id="r_N5_S3" edges="N_HK05_in HK05_HK01 HK01_HK03 S_HK03_out"/>
+    <route id="r_N4_S6" edges="N_HK04_in HK04_HK02 HK02_HK06 S_HK06_out"/>
+
+    <!-- South → North -->
+    <route id="r_S3_N5" edges="S_HK03_in HK03_HK01 HK01_HK05 N_HK05_out"/>
+    <route id="r_S6_N4" edges="S_HK06_in HK06_HK02 HK02_HK04 N_HK04_out"/>
+
+    <!-- West → East -->
+    <route id="r_W5_E4" edges="W_HK05_in HK05_HK04 E_HK04_out"/>
+    <route id="r_W1_E2" edges="W_HK01_in HK01_HK02 E_HK02_out"/>
+    <route id="r_W3_E6" edges="W_HK03_in HK03_HK06 E_HK06_out"/>
+
+    <!-- East → West -->
+    <route id="r_E4_W5" edges="E_HK04_in HK04_HK05 W_HK05_out"/>
+    <route id="r_E2_W1" edges="E_HK02_in HK02_HK01 W_HK01_out"/>
+    <route id="r_E6_W3" edges="E_HK06_in HK06_HK03 W_HK03_out"/>
+
+    <!-- Cross-grid routes (diagonal traversals) -->
+    <route id="r_N5_E2" edges="N_HK05_in HK05_HK01 HK01_HK02 E_HK02_out"/>
+    <route id="r_W1_S6" edges="W_HK01_in HK01_HK02 HK02_HK06 S_HK06_out"/>
+    <route id="r_E4_S3" edges="E_HK04_in HK04_HK05 HK05_HK01 HK01_HK03 S_HK03_out"/>
+    <route id="r_S6_W5" edges="S_HK06_in HK06_HK02 HK02_HK04 HK04_HK05 W_HK05_out"/>
+
+    <!-- ══════ Flows (Vietnamese traffic mix: 60% motorbike, 25% car, 10% bus, 5% truck) ══════ -->
+
+    <!-- North-South corridor (left column) -->
+    <flow id="f_N5_S3_moto" type="motorbike" route="r_N5_S3" begin="0" end="3600" probability="0.12"/>
+    <flow id="f_N5_S3_car"  type="car"       route="r_N5_S3" begin="0" end="3600" probability="0.05"/>
+    <flow id="f_S3_N5_moto" type="motorbike" route="r_S3_N5" begin="0" end="3600" probability="0.12"/>
+    <flow id="f_S3_N5_car"  type="car"       route="r_S3_N5" begin="0" end="3600" probability="0.05"/>
+
+    <!-- North-South corridor (right column) -->
+    <flow id="f_N4_S6_moto" type="motorbike" route="r_N4_S6" begin="0" end="3600" probability="0.12"/>
+    <flow id="f_N4_S6_car"  type="car"       route="r_N4_S6" begin="0" end="3600" probability="0.05"/>
+    <flow id="f_S6_N4_moto" type="motorbike" route="r_S6_N4" begin="0" end="3600" probability="0.12"/>
+    <flow id="f_S6_N4_car"  type="car"       route="r_S6_N4" begin="0" end="3600" probability="0.05"/>
+
+    <!-- East-West corridors -->
+    <flow id="f_W5_E4_moto" type="motorbike" route="r_W5_E4" begin="0" end="3600" probability="0.10"/>
+    <flow id="f_W5_E4_car"  type="car"       route="r_W5_E4" begin="0" end="3600" probability="0.04"/>
+    <flow id="f_W1_E2_moto" type="motorbike" route="r_W1_E2" begin="0" end="3600" probability="0.10"/>
+    <flow id="f_W1_E2_car"  type="car"       route="r_W1_E2" begin="0" end="3600" probability="0.04"/>
+    <flow id="f_W3_E6_moto" type="motorbike" route="r_W3_E6" begin="0" end="3600" probability="0.10"/>
+    <flow id="f_W3_E6_car"  type="car"       route="r_W3_E6" begin="0" end="3600" probability="0.04"/>
+
+    <flow id="f_E4_W5_moto" type="motorbike" route="r_E4_W5" begin="0" end="3600" probability="0.10"/>
+    <flow id="f_E4_W5_car"  type="car"       route="r_E4_W5" begin="0" end="3600" probability="0.04"/>
+    <flow id="f_E2_W1_moto" type="motorbike" route="r_E2_W1" begin="0" end="3600" probability="0.10"/>
+    <flow id="f_E2_W1_car"  type="car"       route="r_E2_W1" begin="0" end="3600" probability="0.04"/>
+    <flow id="f_E6_W3_moto" type="motorbike" route="r_E6_W3" begin="0" end="3600" probability="0.10"/>
+    <flow id="f_E6_W3_car"  type="car"       route="r_E6_W3" begin="0" end="3600" probability="0.04"/>
+
+    <!-- Bus flows (lower frequency) -->
+    <flow id="f_N5_S3_bus" type="bus" route="r_N5_S3" begin="0" end="3600" probability="0.02"/>
+    <flow id="f_S6_N4_bus" type="bus" route="r_S6_N4" begin="0" end="3600" probability="0.02"/>
+    <flow id="f_W1_E2_bus" type="bus" route="r_W1_E2" begin="0" end="3600" probability="0.02"/>
+    <flow id="f_E2_W1_bus" type="bus" route="r_E2_W1" begin="0" end="3600" probability="0.02"/>
+
+    <!-- Truck flows (low frequency) -->
+    <flow id="f_N5_S3_truck" type="truck" route="r_N5_S3" begin="0" end="3600" probability="0.01"/>
+    <flow id="f_W1_E2_truck" type="truck" route="r_W1_E2" begin="0" end="3600" probability="0.01"/>
+
+    <!-- Cross-grid flows -->
+    <flow id="f_N5_E2_moto" type="motorbike" route="r_N5_E2" begin="0" end="3600" probability="0.06"/>
+    <flow id="f_W1_S6_moto" type="motorbike" route="r_W1_S6" begin="0" end="3600" probability="0.06"/>
+    <flow id="f_E4_S3_car"  type="car"       route="r_E4_S3" begin="0" end="3600" probability="0.03"/>
+    <flow id="f_S6_W5_car"  type="car"       route="r_S6_W5" begin="0" end="3600" probability="0.03"/>
+</routes>
