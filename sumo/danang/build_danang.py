@@ -321,26 +321,28 @@ def generate_demand():
     randomTrips = find_tool("randomTrips.py")
     duarouter = find_tool("duarouter")
 
-    # Hai Chau District: dense downtown, 10,000 vehicles for 1-hour peak
+    # Hai Chau District: dense downtown, 5,000 vehicles for 1-hour peak
     # ~68% motorbike, ~20% car, ~6% bus, ~6% truck
     trip_files = []
 
     vehicle_configs = [
         # (prefix, vtype, count, fringe_factor)
-        ("ma_", "motorbike",   4500, 1),   # main motorbike wave
-        ("mx_", "motorbike2",  2300, 2),   # secondary motorbike wave
-        ("ca_", "car",         1200, 5),   # sedans
-        ("sv_", "car_suv",      500, 5),   # SUVs
-        ("tx_", "taxi",         500, 5),   # taxis (Grab/Mai Linh)
-        ("bs_", "bus",          400, 10),  # city buses
-        ("tk_", "truck",        300, 9),   # heavy trucks
-        ("dv_", "delivery",     300, 5),   # delivery vans
+        ("ma_", "motorbike",   2250, 1),   # main motorbike wave
+        ("mx_", "motorbike2",  1150, 2),   # secondary motorbike wave
+        ("ca_", "car",          600, 5),   # sedans
+        ("sv_", "car_suv",      250, 5),   # SUVs
+        ("tx_", "taxi",         250, 5),   # taxis (Grab/Mai Linh)
+        ("bs_", "bus",          200, 10),  # city buses
+        ("tk_", "truck",        150, 9),   # heavy trucks
+        ("dv_", "delivery",     150, 5),   # delivery vans
     ]
 
     for prefix, vtype, count, fringe in vehicle_configs:
         trip_file = os.path.join(SCRIPT_DIR, f"danang.{prefix}.trips.xml")
         trip_files.append(trip_file)
 
+        # Compress all departures into 900s for dense traffic demo
+        depart_end = 900
         cmd = [
             sys.executable, randomTrips,
             "-n", NET_FILE,
@@ -349,8 +351,8 @@ def generate_demand():
             "--trip-attributes", f'type="{vtype}"',
             "--prefix", prefix,
             "-b", "0",
-            "-e", "3600",
-            "-p", str(round(3600 / count, 2)),
+            "-e", str(depart_end),
+            "-p", str(round(depart_end / count, 2)),
             "--fringe-factor", str(fringe),
             "--validate",
             "--remove-loops",

@@ -131,13 +131,50 @@ class TLSMetadata:
         self,
         min_green_phases: int = 2,
         min_incoming: int = 2,
+        exclude_roundabout_radius: float = 200.0,
     ) -> list[TLSInfo]:
-        """Return only TLS worth optimizing (skip pedestrian crossings, etc.)."""
+        """Return only TLS worth optimizing.
+
+        Skips:
+          - Pedestrian crossings / trivial signals
+          - TLS near roundabouts (within exclude_roundabout_radius meters)
+            because roundabouts work better with yield-based flow.
+        """
+        # Find roundabout centers
+        ra_centers: list[tuple[float, float]] = []
+        for ra in self._net.getRoundabouts():
+            xs, ys = [], []
+            for nid in ra.getNodes():
+                try:
+                    n = self._net.getNode(nid)
+                    x, y = n.getCoord()
+                    xs.append(x); ys.append(y)
+                except Exception:
+                    pass
+            if xs:
+                ra_centers.append((sum(xs) / len(xs), sum(ys) / len(ys)))
+
+        import math
+
+        def _near_roundabout(tls_id: str) -> bool:
+            if not ra_centers:
+                return False
+            try:
+                node = self._net.getNode(tls_id)
+                tx, ty = node.getCoord()
+            except Exception:
+                return False
+            for cx, cy in ra_centers:
+                if math.sqrt((tx - cx) ** 2 + (ty - cy) ** 2) < exclude_roundabout_radius:
+                    return True
+            return False
+
         return [
             info
             for info in self._tls_map.values()
             if info.num_green_phases >= min_green_phases
             and len(info.incoming_edges) >= min_incoming
+            and not _near_roundabout(info.id)
         ]
 
     def get_tls_ids(self) -> list[str]:

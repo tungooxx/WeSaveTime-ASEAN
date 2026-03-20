@@ -215,6 +215,7 @@ class SurrogateEnv(gym.Env):
     def get_tls_details(self) -> list[dict]:
         return []  # Not available from surrogate
 
+    # [Level 2 REMOVED] Event stubs kept for API compatibility
     def get_active_events(self) -> list[dict]:
         return []
 
@@ -224,5 +225,5 @@ class SurrogateEnv(gym.Env):
     def close(self) -> None:
         pass  # No SUMO process to close
 
-    # For compatibility
+    # [Level 2 REMOVED] For compatibility
     _active_event_log: list[str] = []

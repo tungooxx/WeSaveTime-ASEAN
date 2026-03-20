@@ -70,7 +70,7 @@ class TrainingThread(threading.Thread):
         try:
             # Kill any stale SUMO/TraCI connections
             import traci
-            for label in ["rl_training", "congestion_monitor", "event_dashboard"]:
+            for label in ["rl_training", "congestion_monitor"]:  # [Level 2 REMOVED] event_dashboard
                 try:
                     traci.getConnection(label).close()
                 except Exception:
@@ -101,7 +101,30 @@ class TrainingThread(threading.Thread):
                 stop_check=lambda: self.stop_event.is_set(),
             )
 
-            if self.params.get("dyna", False):
+            algorithm = self.params.get("algorithm", "dqn")
+            if algorithm == "mappo":
+                from src.ai.train import train_mappo_with_callbacks
+                # MAPPO uses different params than DQN
+                mappo_kwargs = dict(
+                    net_file=self.params["net"],
+                    route_file=self.params["route"],
+                    sumo_cfg=self.params["cfg"],
+                    episodes=self.params["episodes"],
+                    delta_time=self.params["delta_time"],
+                    sim_length=self.params["sim_length"],
+                    hidden=self.params["hidden"],
+                    lr=self.params["lr"],
+                    gamma=self.params["gamma"],
+                    save_dir=self.params["save_dir"],
+                    save_every=self.params["save_every"],
+                    seed=self.params["seed"],
+                    gui=self.params.get("gui", False),
+                    on_episode=lambda ep: self.metric_q.put(("episode", ep)),
+                    on_status=lambda msg: self.metric_q.put(("status", msg)),
+                    stop_check=lambda: self.stop_event.is_set(),
+                )
+                train_mappo_with_callbacks(**mappo_kwargs)
+            elif self.params.get("dyna", False):
                 from src.ai.train import train_dyna_with_callbacks
                 train_dyna_with_callbacks(**common_kwargs)
             else:
@@ -241,8 +264,17 @@ class RLDashboard:
                        ).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
 
         row += 1
+        tk.Label(left, text="Algorithm:", font=("Segoe UI", 9),
+                 fg=FG2, bg=BG).grid(row=row, column=0, sticky=tk.W, pady=2)
+        self._algo_var = tk.StringVar(value="mappo")
+        algo_combo = ttk.Combobox(left, textvariable=self._algo_var,
+                                   values=["dqn", "mappo"], width=10,
+                                   state="readonly")
+        algo_combo.grid(row=row, column=1, sticky=tk.W, pady=2)
+
+        row += 1
         self._dyna_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(left, text="Dyna mode (AI surrogate, 5x faster)",
+        tk.Checkbutton(left, text="Dyna mode (DQN only, AI surrogate)",
                        variable=self._dyna_var, font=("Segoe UI", 9),
                        fg=BLUE, bg=BG, selectcolor=BG2,
                        activebackground=BG, activeforeground=BLUE,
@@ -359,6 +391,7 @@ class RLDashboard:
         p["target_update"] = 1000
         p["gui"] = self._gui_var.get()
         p["dyna"] = self._dyna_var.get()
+        p["algorithm"] = self._algo_var.get()
         return p
 
     def _start_training(self):
@@ -518,13 +551,14 @@ class RLDashboard:
         total = ep.get("total_episodes", "?")
         reward = ep["mean_reward"]
         self._best_reward = max(self._best_reward, reward)
-        n_add = ep.get("tls_add", 0)
-        n_rm = ep.get("tls_remove", 0)
+        # [TLS CANDIDATE COMMENTED OUT]
+        n_add = 0  # ep.get("tls_add", 0)
+        n_rm = 0   # ep.get("tls_remove", 0)
 
-        # Cache TLS details + events for click-to-inspect
+        # Cache TLS details for click-to-inspect
         self._ep_details[ep_num] = {
             "tls": ep.get("tls_details", []),
-            "events": ep.get("event_log", []),
+            # [Level 2 REMOVED] "events": ep.get("event_log", []),
         }
 
         # Store for charts
@@ -554,7 +588,6 @@ class RLDashboard:
 
         # Accumulate full log line
         n_col = ep.get("collisions", 0)
-        n_events = len(ep.get("event_log", []))
         source = ep.get("source", "sumo")
         src_tag = "S" if source == "surrogate" else "R"  # S=surrogate, R=real
         line = (
@@ -562,13 +595,11 @@ class RLDashboard:
             f"R={reward:+.4f} | Loss={ep['mean_loss']:.4f} | "
             f"eps={ep['epsilon']:.3f} | "
             f"Wait={ep['avg_wait']:.1f}s | Queue={ep['avg_queue']:.1f} | "
-            f"Veh={ep['vehicles']} | Col={n_col} | Evt={n_events} | "
+            f"Veh={ep['vehicles']} | Col={n_col} | "
             f"+Add={n_add} -Rm={n_rm} | {ep['time_s']:.0f}s"
         )
         self._full_log_lines.append(line)
-        # Log event messages
-        for evt_msg in ep.get("event_log", []):
-            self._full_log_lines.append(f"    >> {evt_msg}")
+        # [Level 2 REMOVED] Event log messages removed
 
         # Update status
         self._status_var.set(
@@ -627,10 +658,10 @@ class RLDashboard:
 
             details = self._ep_details.get(ep_num, {})
             tls_details = details.get("tls", []) if isinstance(details, dict) else details
-            event_log = details.get("events", []) if isinstance(details, dict) else []
+            # [Level 2 REMOVED] event_log removed
 
             # Fallback: try loading from training_log.json on disk
-            if not tls_details and not event_log:
+            if not tls_details:
                 try:
                     log_path = os.path.join(_PROJECT_ROOT, "checkpoints",
                                             "training_log.json")
@@ -639,12 +670,11 @@ class RLDashboard:
                     for ep_entry in log_data.get("episodes", []):
                         if ep_entry.get("episode") == ep_num:
                             tls_details = ep_entry.get("tls_details", [])
-                            event_log = ep_entry.get("event_log", [])
                             break
                 except Exception:
                     pass
 
-            if not tls_details and not event_log:
+            if not tls_details:
                 messagebox.showinfo(
                     f"Episode {ep_num}",
                     f"Source: {vals[0]}\n"
@@ -654,15 +684,12 @@ class RLDashboard:
                     f"(No per-TLS details for this episode)")
                 return
 
-            self._show_detail_popup(ep_num, tls_details, event_log)
+            self._show_detail_popup(ep_num, tls_details)
         except Exception as e:
             messagebox.showerror("Error", f"Could not load details:\n{e}")
 
-    def _show_detail_popup(self, ep_num: int, details: list[dict],
-                           event_log: list[str] = None):
+    def _show_detail_popup(self, ep_num: int, details: list[dict]):
         """Show a popup window with per-TLS breakdown for one episode."""
-        if event_log is None:
-            event_log = []
 
         win = tk.Toplevel(self.root)
         win.title(f"Episode {ep_num} - TLS Details")
@@ -682,8 +709,7 @@ class RLDashboard:
         n_off = sum(1 for d in details if d["decision"] == "NO TLS")
 
         summary = (f"KEEP: {n_keep}  |  REMOVE: {n_remove}  |  "
-                   f"ADD: {n_add}  |  NO TLS: {n_off}  |  "
-                   f"Events: {len(event_log)}")
+                   f"ADD: {n_add}  |  NO TLS: {n_off}")
         tk.Label(win, text=summary, font=("Consolas", 10),
                  fg=YELLOW, bg=BG).pack()
 
@@ -729,16 +755,7 @@ class RLDashboard:
                     f"{tls_id}")
             text.insert(tk.END, line + "\n", tag)
 
-        # Event log section
-        if event_log:
-            text.config(state=tk.NORMAL)
-            text.tag_configure("evt_header", foreground=ORANGE,
-                               font=("Consolas", 9, "bold"))
-            text.tag_configure("evt", foreground=YELLOW)
-            text.insert(tk.END, "\n", "header")
-            text.insert(tk.END, f"  EVENTS ({len(event_log)}):\n", "evt_header")
-            for msg in event_log:
-                text.insert(tk.END, f"    {msg}\n", "evt")
+        # [Level 2 REMOVED] Event log section removed
 
         text.config(state=tk.DISABLED)
 
@@ -761,11 +778,7 @@ class RLDashboard:
                     f"{d['decision']:<10} {d['type']:<10} {road:<25} "
                     f"{d['off_pct']:>4.0f}% {d['wait']:>6.0f}s "
                     f"{d['queue']:>5} {d['n_incoming']:>5}")
-            if event_log:
-                lines.append("")
-                lines.append(f"EVENTS ({len(event_log)}):")
-                for msg in event_log:
-                    lines.append(f"  {msg}")
+            # [Level 2 REMOVED] Event log section removed
             win.clipboard_clear()
             win.clipboard_append("\n".join(lines))
             self._status_var.set(f"Ep {ep_num} details copied!")

@@ -163,13 +163,13 @@ class SimulationEngine:
         per_tick = effective_density * (self.dt / 60.0)
         count_to_spawn = int(self.rng.poisson(per_tick))
 
-        # check for directional surge
+        # [Level 2 REMOVED] check for directional surge
         surge_dir: Optional[str] = None
         surge_mult: float = 1.0
-        for evt in sc.special_events:
-            if evt.get("type") == "directional_surge":
-                surge_dir = evt["direction"]
-                surge_mult = evt.get("multiplier", 2.0)
+        # for evt in sc.special_events:
+        #     if evt.get("type") == "directional_surge":
+        #         surge_dir = evt["direction"]
+        #         surge_mult = evt.get("multiplier", 2.0)
 
         total = 0
         for ix in self.intersections:
@@ -204,18 +204,17 @@ class SimulationEngine:
         for ix in self.intersections:
             ix.unblock_all_lanes()
 
-        # apply special events
-        for evt in sc.special_events:
-            etype = evt.get("type")
-            if etype == "blocked_lane":
-                idx = evt.get("intersection_idx", 0)
-                if 0 <= idx < len(self.intersections):
-                    self.intersections[idx].block_lane(evt.get("lane_direction", "S"))
-
-            elif etype == "emergency_vehicle":
-                from_idx = evt.get("from_intersection_idx", 0)
-                to_idx = evt.get("to_intersection_idx", len(self.intersections) - 1)
-                self.inject_emergency_vehicle(from_idx, to_idx)
+        # [Level 2 REMOVED] apply special events
+        # for evt in sc.special_events:
+        #     etype = evt.get("type")
+        #     if etype == "blocked_lane":
+        #         idx = evt.get("intersection_idx", 0)
+        #         if 0 <= idx < len(self.intersections):
+        #             self.intersections[idx].block_lane(evt.get("lane_direction", "S"))
+        #     elif etype == "emergency_vehicle":
+        #         from_idx = evt.get("from_intersection_idx", 0)
+        #         to_idx = evt.get("to_intersection_idx", len(self.intersections) - 1)
+        #         self.inject_emergency_vehicle(from_idx, to_idx)
 
         return sc
 

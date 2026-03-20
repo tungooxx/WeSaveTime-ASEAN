@@ -34,6 +34,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from src.ai.traffic_env import SumoTrafficEnv, OBS_DIM, ACT_DIM
 from src.ai.dqn_agent import TrafficDQNAgent
+from src.ai.mappo_agent import MAPPOAgent
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -218,9 +219,9 @@ def train(
     # ── final save ────────────────────────────────────────────────────
     agent.save(os.path.join(save_dir, "final_model.pt"))
 
-    # ── recommendations ────────────────────────────────────────────
-    recs = env.get_recommendations()
-    log["recommendations"] = recs
+    # [TLS CANDIDATE COMMENTED OUT] recommendations
+    # recs = env.get_recommendations()
+    # log["recommendations"] = recs
 
     with open(log_path, "w") as f:
         json.dump(log, f, indent=2)
@@ -233,38 +234,11 @@ def train(
     print(f"  Models saved to : {save_dir}/")
     print(f"  Training log    : {log_path}")
     print("=" * 60)
-    _print_recommendations(recs, env)
 
     return agent, log
 
 
-def _print_recommendations(recs: dict, env) -> None:
-    """Print agent TLS recommendations to console."""
-    if recs.get("add"):
-        print()
-        print("  ADD NEW TRAFFIC LIGHTS:")
-        for r in recs["add"]:
-            print(f"    + {r['id']} (agent active {100 - r['off_pct']:.0f}% of time)")
-
-    if recs.get("remove"):
-        print()
-        print("  REMOVE TRAFFIC LIGHTS:")
-        for r in recs["remove"]:
-            print(f"    - {r['id']} (agent OFF {r['off_pct']:.0f}% of time)")
-
-    if recs.get("keep_off"):
-        print()
-        print("  CANDIDATE JUNCTIONS — NO TLS NEEDED:")
-        for r in recs["keep_off"]:
-            print(f"    . {r['id']} (OFF {r['off_pct']:.0f}%)")
-
-    n_existing = len(env.existing_tls_ids)
-    n_candidates = len(env.candidate_tls_ids)
-    n_add = len(recs.get("add", []))
-    n_remove = len(recs.get("remove", []))
-    print()
-    print(f"  Summary: {n_existing} existing TLS, {n_candidates} candidates tested")
-    print(f"           {n_add} new TLS recommended, {n_remove} removals recommended")
+# [TLS CANDIDATE COMMENTED OUT] _print_recommendations removed
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -366,8 +340,8 @@ def train_with_callbacks(
         mean_loss = float(np.mean(ep_losses)) if ep_losses else 0.0
         metrics = env.get_metrics()
 
-        tls_snap = env.get_tls_snapshot()
-        tls_details = env.get_tls_details()
+        # [TLS CANDIDATE COMMENTED OUT] tls_snap = env.get_tls_snapshot()
+        # [TLS CANDIDATE COMMENTED OUT] tls_details = env.get_tls_details()
         ep_log = {
             "episode": ep, "total_episodes": episodes,
             "mean_reward": round(mean_r, 4),
@@ -382,11 +356,9 @@ def train_with_callbacks(
             "vehicles": metrics.get("total_vehicles", 0),
             "collisions": metrics.get("collisions", 0),
             "best_reward": round(max(best_reward, mean_r), 4),
-            "tls_add": tls_snap["n_add"],
-            "tls_remove": tls_snap["n_remove"],
-            "tls_details": tls_details,
-            "events": env.get_active_events(),
-            "event_log": env._active_event_log[-20:],
+            # [TLS CANDIDATE COMMENTED OUT] "tls_add": tls_snap["n_add"],
+            # [TLS CANDIDATE COMMENTED OUT] "tls_remove": tls_snap["n_remove"],
+            # [TLS CANDIDATE COMMENTED OUT] "tls_details": tls_details,
         }
         log["episodes"].append(ep_log)
 
@@ -404,15 +376,173 @@ def train_with_callbacks(
 
     agent.save(os.path.join(save_dir, "final_model.pt"))
 
-    recs = env.get_recommendations()
-    log["recommendations"] = recs
+    # [TLS CANDIDATE COMMENTED OUT] recs = env.get_recommendations()
+    # log["recommendations"] = recs
 
     with open(log_path, "w") as f:
         json.dump(log, f, indent=2)
 
-    _status(f"Recommendations: +{len(recs['add'])} add, "
-            f"-{len(recs['remove'])} remove")
+    _status("Training complete!")
 
+    env.close()
+
+    return agent, log
+
+
+# ──────────────────────────────────────────────────────────────────────
+# MAPPO Training (callback-based for GUI integration)
+# ──────────────────────────────────────────────────────────────────────
+
+def train_mappo_with_callbacks(
+    net_file: str,
+    route_file: str,
+    sumo_cfg: str | None = None,
+    episodes: int = 100,
+    delta_time: int = 10,
+    sim_length: int = 3600,
+    hidden: int = 256,
+    lr: float = 3e-4,
+    gamma: float = 0.99,
+    gae_lambda: float = 0.95,
+    clip_eps: float = 0.2,
+    entropy_coef: float = 0.01,
+    value_coef: float = 0.5,
+    ppo_epochs: int = 10,
+    mini_batch_size: int = 256,
+    save_dir: str = "checkpoints",
+    save_every: int = 10,
+    seed: int = 42,
+    gui: bool = False,
+    on_episode=None,
+    on_status=None,
+    stop_check=None,
+) -> tuple[MAPPOAgent, dict]:
+    """MAPPO training loop with callbacks for GUI integration."""
+    def _status(msg):
+        if on_status:
+            on_status(msg)
+
+    os.makedirs(save_dir, exist_ok=True)
+    log_path = os.path.join(save_dir, "training_log.json")
+
+    _status(f"Creating environment (starting SUMO{'-gui' if gui else ''})...")
+    env = SumoTrafficEnv(
+        net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
+        delta_time=delta_time, sim_length=sim_length, gui=gui, seed=seed,
+    )
+    _status(f"Environment ready: {env.num_agents} TLS agents")
+
+    agent = MAPPOAgent(
+        obs_dim=OBS_DIM, act_dim=ACT_DIM, hidden=hidden, lr=lr,
+        gamma=gamma, gae_lambda=gae_lambda, clip_eps=clip_eps,
+        entropy_coef=entropy_coef, value_coef=value_coef,
+        ppo_epochs=ppo_epochs, mini_batch_size=mini_batch_size,
+    )
+    n_params = sum(p.numel() for p in agent.network.parameters())
+    _status(f"MAPPO agent ready ({n_params:,} params, device={agent.device})")
+
+    log: dict = {
+        "config": {
+            "algorithm": "mappo",
+            "net_file": net_file, "episodes": episodes,
+            "num_agents": env.num_agents, "obs_dim": OBS_DIM, "act_dim": ACT_DIM,
+            "lr": lr, "gamma": gamma, "clip_eps": clip_eps,
+            "ppo_epochs": ppo_epochs, "entropy_coef": entropy_coef,
+        },
+        "episodes": [],
+    }
+
+    best_reward = -float("inf")
+
+    for ep in range(1, episodes + 1):
+        if stop_check and stop_check():
+            break
+
+        t0 = time.time()
+        obs, _ = env.reset(seed=seed + ep)
+        agent.buffer.clear()
+
+        ep_rewards: dict[str, float] = {tid: 0.0 for tid in env.tls_ids}
+        step_count = 0
+        terminated = truncated = False
+
+        while not (terminated or truncated):
+            # Global state = mean of all agent observations
+            all_obs = [obs[tid] for tid in env.tls_ids]
+            global_obs = np.mean(all_obs, axis=0).astype(np.float32)
+
+            actions = {}
+            for tid in env.tls_ids:
+                valid = env.get_valid_actions(tid)
+                a, lp, v = agent.select_action(obs[tid], global_obs, valid)
+                actions[tid] = a
+
+                # Store transition
+                mask = agent.get_valid_mask(valid)
+                agent.buffer.add(obs[tid], global_obs, a, lp, 0.0, v,
+                                 False, mask)  # reward filled after step
+
+            next_obs, rewards, terminated, truncated, info = env.step(actions)
+            env.record_actions(actions)
+
+            # Fill in rewards for the transitions we just stored
+            buf = agent.buffer
+            n_agents = len(env.tls_ids)
+            for i, tid in enumerate(env.tls_ids):
+                idx = len(buf.rewards) - n_agents + i
+                buf.rewards[idx] = rewards[tid]
+                buf.dones[idx] = terminated
+                ep_rewards[tid] += rewards[tid]
+
+            obs = next_obs
+            step_count += 1
+
+        # PPO update at end of episode
+        loss_stats = agent.update()
+
+        elapsed = time.time() - t0
+        mean_r = float(np.mean(list(ep_rewards.values())))
+        metrics = env.get_metrics()
+
+        ep_log = {
+            "episode": ep, "total_episodes": episodes,
+            "mean_reward": round(mean_r, 4),
+            "total_reward": round(sum(ep_rewards.values()), 4),
+            "mean_loss": round(loss_stats["total_loss"], 6),
+            "epsilon": 0.0,  # PPO has no epsilon
+            "entropy": round(loss_stats["entropy"], 4),
+            "actor_loss": round(loss_stats["actor_loss"], 6),
+            "critic_loss": round(loss_stats["critic_loss"], 6),
+            "steps": step_count,
+            "time_s": round(elapsed, 1),
+            "buffer_size": 0,  # on-policy, no persistent buffer
+            "avg_wait": metrics.get("avg_wait_time", 0),
+            "avg_queue": metrics.get("avg_queue_length", 0),
+            "vehicles": metrics.get("total_vehicles", 0),
+            "collisions": metrics.get("collisions", 0),
+            "best_reward": round(max(best_reward, mean_r), 4),
+            "algorithm": "mappo",
+        }
+        log["episodes"].append(ep_log)
+
+        if mean_r > best_reward:
+            best_reward = mean_r
+            agent.save(os.path.join(save_dir, "best_model.pt"))
+
+        if ep % save_every == 0:
+            agent.save(os.path.join(save_dir, f"model_ep{ep}.pt"))
+            with open(log_path, "w") as f:
+                json.dump(log, f, indent=2)
+
+        if on_episode:
+            on_episode(ep_log)
+
+    agent.save(os.path.join(save_dir, "final_model.pt"))
+
+    with open(log_path, "w") as f:
+        json.dump(log, f, indent=2)
+
+    _status("MAPPO training complete!")
     env.close()
 
     return agent, log
@@ -541,7 +671,7 @@ def train_dyna_with_callbacks(
         mean_r = float(np.mean(list(ep_rewards.values())))
         mean_loss = float(np.mean(ep_losses)) if ep_losses else 0.0
         metrics = run_env.get_metrics()
-        tls_snap = run_env.get_tls_snapshot()
+        # [TLS CANDIDATE COMMENTED OUT] tls_snap = run_env.get_tls_snapshot()
 
         ep_log = {
             "episode": total_ep, "total_episodes": episodes,
@@ -557,11 +687,9 @@ def train_dyna_with_callbacks(
             "vehicles": metrics.get("total_vehicles", 0),
             "collisions": metrics.get("collisions", 0),
             "best_reward": round(max(best_reward, mean_r), 4),
-            "tls_add": tls_snap["n_add"],
-            "tls_remove": tls_snap["n_remove"],
-            "tls_details": run_env.get_tls_details() if source == "sumo" else [],
-            "events": run_env.get_active_events(),
-            "event_log": getattr(run_env, '_active_event_log', [])[-20:],
+            # [TLS CANDIDATE COMMENTED OUT] "tls_add": tls_snap["n_add"],
+            # [TLS CANDIDATE COMMENTED OUT] "tls_remove": tls_snap["n_remove"],
+            # [TLS CANDIDATE COMMENTED OUT] "tls_details": ...,
             "source": source,
             "surrogate_buf": len(trans_buf),
         }
@@ -630,8 +758,8 @@ def train_dyna_with_callbacks(
 
     # ── Final ──────────────────────────────────────────────────────
     agent.save(os.path.join(save_dir, "final_model.pt"))
-    recs = env.get_recommendations()
-    log["recommendations"] = recs
+    # [TLS CANDIDATE COMMENTED OUT] recs = env.get_recommendations()
+    # log["recommendations"] = recs
     with open(log_path, "w") as f:
         json.dump(log, f, indent=2)
 
@@ -729,6 +857,8 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--gui", action="store_true")
     ap.add_argument("--eval-only", default=None, help="Checkpoint path for eval")
+    ap.add_argument("--algorithm", choices=["dqn", "mappo"], default="dqn",
+                    help="RL algorithm: dqn or mappo (default: dqn)")
 
     args = ap.parse_args()
 
@@ -739,6 +869,22 @@ def main() -> None:
             agent, args.net, args.route, args.cfg, gui=args.gui, seed=args.seed
         )
         print(f"\n  Results: {json.dumps(results, indent=2)}")
+    elif args.algorithm == "mappo":
+        train_mappo_with_callbacks(
+            net_file=args.net,
+            route_file=args.route,
+            sumo_cfg=args.cfg,
+            episodes=args.episodes,
+            delta_time=args.delta_time,
+            sim_length=args.sim_length,
+            hidden=args.hidden,
+            lr=args.lr,
+            gamma=args.gamma,
+            save_dir=args.save_dir,
+            save_every=args.save_every,
+            seed=args.seed,
+            gui=args.gui,
+        )
     else:
         train(
             net_file=args.net,

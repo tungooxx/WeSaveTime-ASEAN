@@ -1,8 +1,8 @@
 """
 FlowMind AI - Six preset traffic scenarios for Vietnamese smart-city simulation.
 
-Each scenario captures time-of-day, weather, vehicle composition, traffic density,
-and optional special events (lane blockages, emergency vehicles, school surges).
+Each scenario captures time-of-day, weather, vehicle composition, and traffic density.
+[Level 2 REMOVED] Special events (lane blockages, emergency vehicles, school surges) removed.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ class Scenario:
     base_density: float = 20.0                  # vehicles spawned per simulation-minute
     road_speed_factor: float = 1.0              # multiplier on free-flow speed
     visibility: float = 1.0                     # 0-1
-    special_events: list[dict] = field(default_factory=list)
+    # [Level 2 REMOVED] special_events: list[dict] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -101,9 +101,9 @@ _register(Scenario(
     base_density=32.0,
     road_speed_factor=0.85,
     visibility=0.9,
-    special_events=[
-        {"type": "blocked_lane", "intersection_idx": 2, "lane_direction": "S"},
-    ],
+    # [Level 2 REMOVED] special_events=[
+    #     {"type": "blocked_lane", "intersection_idx": 2, "lane_direction": "S"},
+    # ],
 ))
 
 _register(Scenario(
@@ -120,9 +120,9 @@ _register(Scenario(
     base_density=40.0,
     road_speed_factor=0.9,
     visibility=1.0,
-    special_events=[
-        {"type": "directional_surge", "direction": "W", "multiplier": 2.5},
-    ],
+    # [Level 2 REMOVED] special_events=[
+    #     {"type": "directional_surge", "direction": "W", "multiplier": 2.5},
+    # ],
 ))
 
 _register(Scenario(
@@ -139,15 +139,15 @@ _register(Scenario(
     base_density=22.0,
     road_speed_factor=1.0,
     visibility=1.0,
-    special_events=[
-        {
-            "type": "emergency_vehicle",
-            "from_intersection_idx": 0,
-            "to_intersection_idx": 5,
-            "vehicle_type": "ambulance",
-            "priority": "absolute",
-        },
-    ],
+    # [Level 2 REMOVED] special_events=[
+    #     {
+    #         "type": "emergency_vehicle",
+    #         "from_intersection_idx": 0,
+    #         "to_intersection_idx": 5,
+    #         "vehicle_type": "ambulance",
+    #         "priority": "absolute",
+    #     },
+    # ],
 ))
 
 

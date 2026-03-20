@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-03-16T23:16:55.422988+09:00 by Eclipse SUMO polyconvert 1.26.0
+<!-- generated on 2026-03-19T15:47:37.371720+07:00 by Eclipse SUMO polyconvert 1.26.0
 <polyconvertConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/polyconvertConfiguration.xsd">
 
     <input>
-        <net-file value="F:\Newgeneration\FlowMindAI\sumo\danang\danang.net.xml"/>
-        <osm-files value="F:\Newgeneration\FlowMindAI\sumo\danang\map.osm"/>
-        <type-file value="F:\Newgeneration\FlowMindAI\sumo\danang\typemap.xml"/>
+        <net-file value="D:\WeSaveTime-ASEAN\sumo\danang\danang.net.xml"/>
+        <osm-files value="D:\WeSaveTime-ASEAN\sumo\danang\map.osm"/>
+        <type-file value="D:\WeSaveTime-ASEAN\sumo\danang\typemap.xml"/>
     </input>
 
     <output>
-        <output-file value="F:\Newgeneration\FlowMindAI\sumo\danang\danang.poly.xml"/>
+        <output-file value="D:\WeSaveTime-ASEAN\sumo\danang\danang.poly.xml"/>
     </output>
 
     <report>
