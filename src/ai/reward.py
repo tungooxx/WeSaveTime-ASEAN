@@ -4,7 +4,7 @@ FlowMind AI - Reward computation for traffic signal RL.
 Level 1: Pure timing optimization reward.
 
 Per-TLS reward structure:
-  reward = wait_improvement + queue_penalty + fairness + throughput + pressure
+  reward = wait_improvement + queue_penalty + fairness + throughput + pressure + switch_penalty
   Range: approximately -1 to +0.5 per step
 """
 
@@ -20,12 +20,14 @@ def compute_tls_reward(
     old_throughput: int = 0,
     new_throughput: int = 0,
     pressure: float = 0.0,
+    phase_changed: bool = False,
     max_queue_cap: float = 50.0,
-    w_wait: float = 0.40,
-    w_queue: float = 0.25,
+    w_wait: float = 0.35,
+    w_queue: float = 0.20,
     w_fairness: float = 0.10,
     w_throughput: float = 0.10,
-    w_pressure: float = 0.15,
+    w_pressure: float = 0.10,
+    w_switch: float = 0.15,
 ) -> float:
     """Compute scalar reward for one TLS (higher = better).
 
@@ -51,8 +53,11 @@ def compute_tls_reward(
     # 5. Pressure (outgoing > incoming = good flow)
     pressure_term = w_pressure * float(np.clip(pressure / 20.0, -1.0, 1.0))
 
+    # 6. Phase-switch penalty (discourage rapid oscillation)
+    switch_term = -w_switch if phase_changed else 0.0
+
     return float(wait_term + queue_term + fairness_term
-                 + throughput_term + pressure_term)
+                 + throughput_term + pressure_term + switch_term)
 
 
 def compute_global_reward(

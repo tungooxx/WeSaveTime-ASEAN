@@ -119,7 +119,7 @@ def run_baseline(net_file, route_file, sumo_cfg, sim_length=3600,
 
 
 def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
-              sim_length=3600, delta_time=10, seed=1000, episodes=3):
+              sim_length=3600, delta_time=20, seed=1000, episodes=3):
     """Run trained model greedily, collect metrics per episode."""
     import torch
     ckpt = torch.load(model_path, map_location="cpu", weights_only=True)

@@ -32,7 +32,7 @@ from .reward import compute_tls_reward
 MAX_INCOMING_EDGES = 12     # pad/truncate incoming edges to this size
 MAX_GREEN_PHASES = 7        # actions 0-6: choose a green phase
 ACT_OFF = -1                # OFF action DISABLED (was 7: all-green / yield)
-MIN_GREEN_STEPS = 15        # minimum green time before allowing phase change
+MIN_GREEN_STEPS = 40        # minimum green time before allowing phase change (20s real @ step_length=0.5)
 
 # Observation layout per TLS (fixed size for parameter sharing):
 #   [0..11]   queue per edge          (12)
@@ -82,7 +82,7 @@ class SumoTrafficEnv(gym.Env):
         net_file: str,
         route_file: str,
         sumo_cfg: Optional[str] = None,
-        delta_time: int = 10,
+        delta_time: int = 20,
         sim_length: int = 3600,
         gui: bool = False,
         seed: int = 42,
@@ -404,8 +404,7 @@ class SumoTrafficEnv(gym.Env):
                 except traci.TraCIException:
                     pass
             for _ in range(self.allred_time):
-                self._conn.simulationStep()
-                self._sim_step += 1
+                self._sim_step_and_track()
 
         # ── 4. Set target green states (using state strings, not setPhase) ─
         for tls_id, (_, state_str) in targets.items():
@@ -430,7 +429,7 @@ class SumoTrafficEnv(gym.Env):
 
         # ── 6. Observe & reward ───────────────────────────────────────
         obs = self._get_observations()
-        rewards = self._compute_rewards()
+        rewards = self._compute_rewards(changed_tls_set=set(changed_tls))
 
         terminated = self._sim_step >= self.sim_length
         truncated = False
@@ -567,7 +566,7 @@ class SumoTrafficEnv(gym.Env):
 
     # ── Rewards ───────────────────────────────────────────────────────
 
-    def _compute_rewards(self) -> dict[str, float]:
+    def _compute_rewards(self, changed_tls_set: set[str] | None = None) -> dict[str, float]:
         rewards: dict[str, float] = {}
 
         # [Level 1] Pure timing optimization
@@ -616,6 +615,7 @@ class SumoTrafficEnv(gym.Env):
                 old_throughput=self._prev_throughput.get(tls_id, 0),
                 new_throughput=incoming_veh,
                 pressure=pressure,
+                phase_changed=(tls_id in changed_tls_set) if changed_tls_set else False,
             )
 
             self._prev_waiting[tls_id] = total_wait
