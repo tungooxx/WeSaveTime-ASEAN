@@ -32,7 +32,7 @@ from .reward import compute_tls_reward
 MAX_INCOMING_EDGES = 12     # pad/truncate incoming edges to this size
 MAX_GREEN_PHASES = 7        # actions 0-6: choose a green phase
 ACT_OFF = -1                # OFF action DISABLED (was 7: all-green / yield)
-MIN_GREEN_STEPS = 40        # minimum green time before allowing phase change (20s real @ step_length=0.5)
+MIN_GREEN_STEPS = 60        # minimum green time before allowing phase change (30s real @ step_length=0.5)
 
 # Observation layout per TLS (fixed size for parameter sharing):
 #   [0..11]   queue per edge          (12)
