@@ -194,7 +194,7 @@ class RLDashboard:
             ("batch_size",     "Batch Size",       64,     int),
             ("buffer_capacity","Buffer Size",      200000, int),
             ("epsilon_decay",  "Epsilon Decay",    500000, int),
-            ("delta_time",     "Delta Time (s)",   20,     int),
+            ("delta_time",     "Delta Time (s)",   30,     int),
             ("sim_length",     "Sim Length (s)",    3600,   int),
             ("seed",           "Seed",             42,     int),
         ]

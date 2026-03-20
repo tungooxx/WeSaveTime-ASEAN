@@ -82,7 +82,7 @@ class SumoTrafficEnv(gym.Env):
         net_file: str,
         route_file: str,
         sumo_cfg: Optional[str] = None,
-        delta_time: int = 20,
+        delta_time: int = 30,
         sim_length: int = 3600,
         gui: bool = False,
         seed: int = 42,
