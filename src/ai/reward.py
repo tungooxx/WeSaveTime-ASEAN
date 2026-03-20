@@ -23,9 +23,9 @@ def compute_tls_reward(
     phase_changed: bool = False,
     max_queue_cap: float = 50.0,
     w_wait: float = 0.40,
-    w_queue: float = 0.15,
+    w_queue: float = 0.25,
     w_fairness: float = 0.05,
-    w_throughput: float = 0.15,
+    w_throughput: float = 0.05,
     w_pressure: float = 0.10,
     w_switch: float = 0.15,
 ) -> float:
