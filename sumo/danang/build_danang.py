@@ -321,28 +321,28 @@ def generate_demand():
     randomTrips = find_tool("randomTrips.py")
     duarouter = find_tool("duarouter")
 
-    # Hai Chau District: dense downtown, 5,000 vehicles for 1-hour peak
+    # Hai Chau District: ~1,655 vehicles for 900s training scenario
     # ~68% motorbike, ~20% car, ~6% bus, ~6% truck
     trip_files = []
 
     vehicle_configs = [
         # (prefix, vtype, count, fringe_factor)
-        ("ma_", "motorbike",   2250, 1),   # main motorbike wave
-        ("mx_", "motorbike2",  1150, 2),   # secondary motorbike wave
-        ("ca_", "car",          600, 5),   # sedans
-        ("sv_", "car_suv",      250, 5),   # SUVs
-        ("tx_", "taxi",         250, 5),   # taxis (Grab/Mai Linh)
-        ("bs_", "bus",          200, 10),  # city buses
-        ("tk_", "truck",        150, 9),   # heavy trucks
-        ("dv_", "delivery",     150, 5),   # delivery vans
+        ("ma_", "motorbike",    750, 1),   # main motorbike wave
+        ("mx_", "motorbike2",   380, 2),   # secondary motorbike wave
+        ("ca_", "car",          200, 5),   # sedans
+        ("sv_", "car_suv",       80, 5),   # SUVs
+        ("tx_", "taxi",          80, 5),   # taxis (Grab/Mai Linh)
+        ("bs_", "bus",           65, 10),  # city buses
+        ("tk_", "truck",         50, 9),   # heavy trucks
+        ("dv_", "delivery",      50, 5),   # delivery vans
     ]
 
     for prefix, vtype, count, fringe in vehicle_configs:
         trip_file = os.path.join(SCRIPT_DIR, f"danang.{prefix}.trips.xml")
         trip_files.append(trip_file)
 
-        # Compress all departures into 900s for dense traffic demo
-        depart_end = 900
+        # Spawn vehicles in first 600s, leaving 300s for network to drain
+        depart_end = 600
         cmd = [
             sys.executable, randomTrips,
             "-n", NET_FILE,
