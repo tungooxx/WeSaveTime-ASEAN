@@ -432,6 +432,22 @@ def train_mappo_with_callbacks(
     )
     _status(f"Environment ready: {env.num_agents} TLS agents")
 
+    # Print per-TLS timing from engineering formulas
+    _status("Per-TLS timing (engineering formulas):")
+    for tid in env.tls_ids:
+        tls_info = env._tls_map.get(tid)
+        g = tls_info.geometry if tls_info else None
+        if g:
+            yw_s = g.yellow_s
+            ar_s = g.allred_s
+            mg_s = g.min_green_s
+            xg_s = g.max_green_s
+            _status(
+                f"  {tid[:40]:<42s} [{g.tier[:3].upper()}] "
+                f"G={mg_s:.0f}-{xg_s:.0f}s Y={yw_s:.1f}s R={ar_s:.1f}s "
+                f"W={g.width_m:.0f}m L={g.total_lanes}"
+            )
+
     agent = MAPPOAgent(
         obs_dim=OBS_DIM, act_dim=ACT_DIM, hidden=hidden, lr=lr,
         gamma=gamma, gae_lambda=gae_lambda, clip_eps=clip_eps,
@@ -441,6 +457,19 @@ def train_mappo_with_callbacks(
     n_params = sum(p.numel() for p in agent.network.parameters())
     _status(f"MAPPO agent ready ({n_params:,} params, device={agent.device})")
 
+    # Build TLS timing info for log
+    tls_timing_lines = []
+    for tid in env.tls_ids:
+        tls_info = env._tls_map.get(tid)
+        g = tls_info.geometry if tls_info else None
+        if g:
+            tls_timing_lines.append(
+                f"  {tid[:40]:<42s} [{g.tier[:3].upper()}] "
+                f"G={g.min_green_s:.0f}-{g.max_green_s:.0f}s "
+                f"Y={g.yellow_s:.1f}s R={g.allred_s:.1f}s "
+                f"W={g.width_m:.0f}m L={g.total_lanes}"
+            )
+
     log: dict = {
         "config": {
             "algorithm": "mappo",
@@ -449,6 +478,7 @@ def train_mappo_with_callbacks(
             "lr": lr, "gamma": gamma, "clip_eps": clip_eps,
             "ppo_epochs": ppo_epochs, "entropy_coef": entropy_coef,
         },
+        "tls_timing": tls_timing_lines,
         "episodes": [],
     }
 

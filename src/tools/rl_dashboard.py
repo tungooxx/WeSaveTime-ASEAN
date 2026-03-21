@@ -514,7 +514,17 @@ class RLDashboard:
         header.append(f"  routes: {self._route_var.get()}")
         header.append(f"  config: {self._cfg_var.get()}")
         header.append("=" * 40)
-        header.append("")
+
+        # Include per-TLS timing if available from training log
+        if hasattr(self, '_tls_timing_lines') and self._tls_timing_lines:
+            header.append("")
+            header.append("Per-TLS Timing (Engineering Formulas):")
+            header.append(f"  {'TLS ID':<42s} {'Tier':<5s} {'Green':>10s} {'Yellow':>7s} {'AllRed':>7s} {'Width':>6s} {'Lanes':>5s}")
+            header.append(f"  {'-'*42} {'-'*5} {'-'*10} {'-'*7} {'-'*7} {'-'*6} {'-'*5}")
+            header.extend(self._tls_timing_lines)
+            header.append("")
+        else:
+            header.append("")
 
         full_text = "\n".join(header + self._full_log_lines)
         self.root.clipboard_clear()
@@ -534,6 +544,11 @@ class RLDashboard:
                     self._on_episode(data)
                 elif msg_type == "status":
                     self._status_var.set(data)
+                    # Capture TLS timing lines for clipboard log
+                    if "[SMA]" in data or "[MED]" in data or "[LAR]" in data:
+                        if not hasattr(self, '_tls_timing_lines'):
+                            self._tls_timing_lines = []
+                        self._tls_timing_lines.append(data)
                 elif msg_type == "done":
                     self._training_finished()
                     return
