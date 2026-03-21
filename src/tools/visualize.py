@@ -535,9 +535,6 @@ class Visualizer:
 
                 # Log TLS phase changes with cycle timing
                 changes_this_step = []
-                yellow_t = env.yellow_time * 0.5   # real seconds
-                allred_t = env.allred_time * 0.5   # real seconds
-                green_t = max(env.delta_time - env.yellow_time - env.allred_time, 1) * 0.5
                 for tid in env.tls_ids:
                     cur_phase = env._current_phases.get(tid, 0)
                     old_phase = prev_phases.get(tid, -1)
@@ -547,13 +544,21 @@ class Visualizer:
                             state_str = env._conn.trafficlight.getRedYellowGreenState(tid)
                         except Exception:
                             state_str = "?"
-                        # Count R/Y/G in the state string
+                        # Per-TLS timing
+                        yw = env._yellow_steps.get(tid, 6) * 0.5
+                        ar = env._allred_steps.get(tid, 4) * 0.5
+                        gr = max(env.delta_time - env._yellow_steps.get(tid, 6)
+                                 - env._allred_steps.get(tid, 4), 1) * 0.5
+                        # Get tier from geometry
+                        tls_info = env._tls_map.get(tid)
+                        tier = tls_info.geometry.tier[:3].upper() if (
+                            tls_info and tls_info.geometry) else "???"
                         n_g = sum(1 for c in state_str if c in ('G', 'g'))
                         n_r = sum(1 for c in state_str if c in ('r', 'R'))
                         changes_this_step.append(
-                            f"  {road[:24]:<24s} P{old_phase}->P{cur_phase} "
-                            f"G={green_t:.0f}s Y={yellow_t:.0f}s R={allred_t:.0f}s "
-                            f"[{state_str[:14]}] G:{n_g} R:{n_r}"
+                            f"  {road[:20]:<20s} [{tier}] P{old_phase}->P{cur_phase} "
+                            f"G={gr:.0f}s Y={yw:.0f}s R={ar:.0f}s "
+                            f"[{state_str[:12]}] G:{n_g} R:{n_r}"
                         )
                     prev_phases[tid] = cur_phase
 

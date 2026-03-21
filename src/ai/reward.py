@@ -21,20 +21,26 @@ def compute_tls_reward(
     new_throughput: int = 0,
     pressure: float = 0.0,
     phase_changed: bool = False,
+    transition_cost: float = 1.0,
     max_queue_cap: float = 50.0,
-    w_wait: float = 0.40,
-    w_queue: float = 0.25,
+    w_wait: float = 0.25,
+    w_queue: float = 0.15,
     w_fairness: float = 0.05,
-    w_throughput: float = 0.05,
-    w_pressure: float = 0.10,
+    w_throughput: float = 0.10,
+    w_pressure: float = 0.30,
     w_switch: float = 0.15,
 ) -> float:
     """Compute scalar reward for one TLS (higher = better).
 
-    Pure efficiency reward for traffic timing optimization.
-    Range: approximately -1 to +0.5 per step.
+    Pressure-primary reward (PressLight): pressure is the most
+    theoretically grounded signal for throughput maximization.
+
+    Args:
+        transition_cost: Per-TLS scaling for switch penalty. Large
+            intersections have longer yellow+allred, so switches cost more.
+            Normalized so average across all TLS ≈ 1.0.
     """
-    # 1. Waiting-time improvement (primary signal)
+    # 1. Waiting-time improvement
     delta_wait = new_waiting - old_waiting
     wait_term = -w_wait * float(np.clip(delta_wait / 100.0, -2.0, 2.0))
 
@@ -50,11 +56,11 @@ def compute_tls_reward(
     tp_change = new_throughput - old_throughput
     throughput_term = w_throughput * float(np.clip(tp_change / 10.0, -1.0, 1.0))
 
-    # 5. Pressure (outgoing > incoming = good flow)
+    # 5. Pressure (primary signal — outgoing > incoming = good flow)
     pressure_term = w_pressure * float(np.clip(pressure / 20.0, -1.0, 1.0))
 
-    # 6. Phase-switch penalty (discourage rapid oscillation)
-    switch_term = -w_switch if phase_changed else 0.0
+    # 6. Phase-switch penalty scaled by intersection transition cost
+    switch_term = -w_switch * transition_cost if phase_changed else 0.0
 
     return float(wait_term + queue_term + fairness_term
                  + throughput_term + pressure_term + switch_term)

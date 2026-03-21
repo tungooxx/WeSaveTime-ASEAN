@@ -9,11 +9,36 @@ without hard-coding intersection metadata.
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Optional
 
 import sumolib
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Constants — Vietnamese traffic engineering
+# ──────────────────────────────────────────────────────────────────────
+
+_DOWNTOWN_SPEED_CAP_MS = 13.89      # 50 km/h — max for urban Hai Chau
+_DECEL_RATE = 3.05                   # m/s² comfortable deceleration (ITE)
+_PED_WALK_S = 7.0                    # pedestrian walk interval (MUTCD)
+_PED_SPEED_MS = 1.0                  # Vietnamese walking speed m/s
+_VEH_LENGTH_M = 6.0                  # clearance vehicle length
+_MIN_YELLOW_S = 3.0                  # MUTCD minimum yellow
+_MIN_ALLRED_S = 1.5                  # minimum all-red clearance
+_MAX_CYCLE_STEPS = 240               # 120 real seconds at step_length=0.5
+_VN_SATURATION_FLOW = 4092           # PCU/hr/lane (Vietnamese measured)
+_SIM_STEP_LENGTH = 0.5               # seconds per simulation step
+
+# Tier-based limits
+_TIER_PARAMS = {
+    #               veh_min_green_s, max_green_s
+    "small":   (10,  25),
+    "medium":  (15,  45),
+    "large":   (20,  60),
+}
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -31,6 +56,146 @@ class PhaseInfo:
 
 
 @dataclass
+class TLSGeometry:
+    """Per-intersection timing derived from engineering formulas.
+
+    All *_steps values are in simulation steps (2 steps = 1 real second
+    at step_length=0.5).
+    """
+    width_m: float                       # junction bounding-box extent
+    approach_speed_ms: float             # max incoming speed (capped)
+    total_lanes: int
+    tier: str                            # "small" / "medium" / "large"
+    # Computed timing in sim steps
+    yellow_steps: int
+    allred_steps: int
+    min_green_steps: int                 # max(vehicle_min, ped_min)
+    max_green_steps: int
+    # Reference values (real seconds, for logging)
+    yellow_s: float
+    allred_s: float
+    ped_min_green_s: float               # pedestrian binding constraint
+    min_green_s: float
+    max_green_s: float
+    # Webster's default cycle
+    default_cycle_s: float = 0.0
+    default_green_splits: list[float] = field(default_factory=list)
+
+
+def _seconds_to_steps(s: float) -> int:
+    """Convert real seconds to simulation steps."""
+    return max(1, round(s / _SIM_STEP_LENGTH))
+
+
+def _junction_width(net, tls_id: str) -> float:
+    """Estimate junction width from node shape bounding box."""
+    try:
+        node = net.getNode(tls_id)
+        shape = node.getShape()
+        if shape and len(shape) >= 2:
+            xs = [p[0] for p in shape]
+            ys = [p[1] for p in shape]
+            return max(max(xs) - min(xs), max(ys) - min(ys))
+    except Exception:
+        pass
+    return 30.0  # fallback median
+
+
+def _max_approach_speed(net, tls_id: str) -> float:
+    """Get max speed of incoming edges, capped at downtown limit."""
+    try:
+        node = net.getNode(tls_id)
+        speeds = [
+            e.getSpeed() for e in node.getIncoming()
+            if not e.getID().startswith(":")
+        ]
+        if speeds:
+            return min(max(speeds), _DOWNTOWN_SPEED_CAP_MS)
+    except Exception:
+        pass
+    return _DOWNTOWN_SPEED_CAP_MS
+
+
+def _total_incoming_lanes(net, tls_id: str) -> int:
+    try:
+        node = net.getNode(tls_id)
+        return sum(
+            e.getLaneNumber() for e in node.getIncoming()
+            if not e.getID().startswith(":")
+        )
+    except Exception:
+        return 4
+
+
+def compute_tls_geometry(
+    net, tls_id: str, num_green_phases: int,
+) -> TLSGeometry:
+    """Compute per-intersection timing from engineering formulas."""
+    width = _junction_width(net, tls_id)
+    speed = _max_approach_speed(net, tls_id)
+    lanes = _total_incoming_lanes(net, tls_id)
+
+    # Tier classification
+    if width < 25:
+        tier = "small"
+    elif width < 50:
+        tier = "medium"
+    else:
+        tier = "large"
+
+    veh_min_s, max_green_s = _TIER_PARAMS[tier]
+
+    # ── Yellow (ITE / Kell-Fullerton) ──────────────────────────────
+    yellow_s = max(_MIN_YELLOW_S, 1.0 + speed / (2 * _DECEL_RATE))
+
+    # ── All-red clearance ──────────────────────────────────────────
+    allred_s = max(_MIN_ALLRED_S, (width + _VEH_LENGTH_M) / max(speed, 1.0))
+
+    # ── Pedestrian minimum green ───────────────────────────────────
+    ped_min_s = _PED_WALK_S + width / _PED_SPEED_MS
+
+    # ── Actual min green = max(vehicle, ped), capped at max_green ─
+    min_green_s = max(veh_min_s, min(ped_min_s, max_green_s))
+
+    # ── Max cycle constraint ───────────────────────────────────────
+    # Ensure total cycle ≤ 120 real seconds
+    n = max(num_green_phases, 1)
+    total_cycle_s = n * (min_green_s + yellow_s + allred_s)
+    if total_cycle_s > 120:
+        available = 120 - n * (yellow_s + allred_s)
+        min_green_s = max(available / n, 7.0)  # floor 7s
+
+    # ── Webster's optimal cycle ────────────────────────────────────
+    lost_per_phase = 1.5 + yellow_s + allred_s  # startup + clearance
+    L = n * lost_per_phase
+    Y = min(n * 0.30, 0.90)  # default: 30% capacity per phase
+    denom = max(1 - Y, 0.10)
+    c_opt = (1.5 * L + 5) / denom
+    c_opt = max(60, min(c_opt, 120))
+    available_green = c_opt - L
+    splits = [available_green / n] * n
+
+    # Convert to sim steps
+    return TLSGeometry(
+        width_m=round(width, 1),
+        approach_speed_ms=round(speed, 2),
+        total_lanes=lanes,
+        tier=tier,
+        yellow_steps=_seconds_to_steps(yellow_s),
+        allred_steps=_seconds_to_steps(allred_s),
+        min_green_steps=_seconds_to_steps(min_green_s),
+        max_green_steps=_seconds_to_steps(max_green_s),
+        yellow_s=round(yellow_s, 1),
+        allred_s=round(allred_s, 1),
+        ped_min_green_s=round(ped_min_s, 1),
+        min_green_s=round(min_green_s, 1),
+        max_green_s=round(max_green_s, 1),
+        default_cycle_s=round(c_opt, 1),
+        default_green_splits=[round(s, 1) for s in splits],
+    )
+
+
+@dataclass
 class TLSInfo:
     """Metadata for a single traffic light system."""
     id: str
@@ -38,6 +203,7 @@ class TLSInfo:
     incoming_lanes: list[str] = field(default_factory=list)
     phases: list[PhaseInfo] = field(default_factory=list)
     num_connections: int = 0
+    geometry: Optional[TLSGeometry] = None
 
     @property
     def num_phases(self) -> int:
@@ -115,6 +281,11 @@ class TLSMetadata:
                 if lane_id not in seen_lanes:
                     info.incoming_lanes.append(lane_id)
                     seen_lanes.add(lane_id)
+
+            # Compute per-intersection geometry & timing
+            info.geometry = compute_tls_geometry(
+                self._net, tls_id, info.num_green_phases,
+            )
 
             self._tls_map[tls_id] = info
 

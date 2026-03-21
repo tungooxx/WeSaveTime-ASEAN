@@ -120,7 +120,7 @@ def build_network():
         "--tls.guess.threshold", "100",
         # Junction handling
         "--junctions.join", "true",
-        "--junctions.join-dist", "20",
+        "--junctions.join-dist", "50",
         "--junctions.corner-detail", "5",
         # Lane and road geometry
         "--geometry.remove", "true",
@@ -140,6 +140,33 @@ def build_network():
     ]
 
     return run(cmd, "Building SUMO network from OSM")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Step 2b: Fix speed limits — cap all lanes to 50 km/h for downtown
+# ══════════════════════════════════════════════════════════════════════
+
+def fix_speed_limits():
+    """Cap all lane speeds to 50 km/h (13.89 m/s) for downtown Hai Chau.
+
+    OSM tags many roads as highway=trunk (100 km/h default), but this is
+    a dense urban district — real speed limit is 40-50 km/h.
+    """
+    import xml.etree.ElementTree as ET
+    tree = ET.parse(NET_FILE)
+    root = tree.getroot()
+    max_speed = 13.89  # 50 km/h
+
+    count = 0
+    for lane in root.iter("lane"):
+        speed = float(lane.get("speed", "0"))
+        if speed > max_speed:
+            lane.set("speed", f"{max_speed:.2f}")
+            count += 1
+
+    tree.write(NET_FILE, xml_declaration=True, encoding="UTF-8")
+    print(f"  Capped {count} lanes to 50 km/h ({max_speed} m/s)")
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -620,7 +647,8 @@ def main():
 
     steps = [
         ("1. Check OSM file",            check_osm),
-        ("2. Build SUMO network",        build_network),
+        ("2a. Build SUMO network",       build_network),
+        ("2b. Fix speed limits (50 km/h)", fix_speed_limits),
         ("3. Build polygon overlays",    build_polygons),
         ("4a. Create vehicle types",     create_vehicle_types),
         ("4b. Create edge weights",      create_edge_weights),

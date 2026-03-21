@@ -140,6 +140,30 @@ class SumoTrafficEnv(gym.Env):
             gp = tls.green_phase_indices()
             self._green_phases[tls.id] = gp if gp else [0]
 
+        # ── Per-TLS timing from engineering formulas ───────────────
+        self._yellow_steps: dict[str, int] = {}
+        self._allred_steps: dict[str, int] = {}
+        self._min_green_steps: dict[str, int] = {}
+        self._max_green_steps: dict[str, int] = {}
+        for tls in self._tls_list:
+            g = tls.geometry
+            if g:
+                self._yellow_steps[tls.id] = g.yellow_steps
+                self._allred_steps[tls.id] = g.allred_steps
+                self._min_green_steps[tls.id] = g.min_green_steps
+                self._max_green_steps[tls.id] = g.max_green_steps
+            else:
+                self._yellow_steps[tls.id] = yellow_time
+                self._allred_steps[tls.id] = allred_time
+                self._min_green_steps[tls.id] = 30
+                self._max_green_steps[tls.id] = 90
+
+        # Precompute avg transition for reward normalization
+        transitions = [
+            self._yellow_steps[t] + self._allred_steps[t] for t in self.tls_ids
+        ]
+        self._avg_transition = sum(transitions) / max(len(transitions), 1)
+
         # [TLS CANDIDATE COMMENTED OUT] ── Candidate TLS tracking ──
         # self.candidate_tls_ids: set[str] = set()
         # self.existing_tls_ids: set[str] = set()
@@ -180,6 +204,7 @@ class SumoTrafficEnv(gym.Env):
         self._prev_throughput: dict[str, int] = {}
         self._current_phases: dict[str, int] = {}
         self._phase_start_step: dict[str, int] = {}
+        self._green_start_step: dict[str, int] = {}  # when actual green began
 
     # ── Properties ────────────────────────────────────────────────────
 
@@ -301,6 +326,7 @@ class SumoTrafficEnv(gym.Env):
         self._prev_throughput.clear()
         self._current_phases.clear()
         self._phase_start_step.clear()
+        self._green_start_step.clear()
 
         # Initialise per-TLS tracking and validate green phases at runtime
         for tls_id in self.tls_ids:
@@ -356,12 +382,11 @@ class SumoTrafficEnv(gym.Env):
         targets: dict[str, tuple[int, str]] = {}  # tls_id -> (phase_idx, state_str)
 
         for tls_id, action_idx in actions.items():
-            # ── Min-green enforcement (from sumo-rl) ──────────────
-            # If current phase hasn't been green long enough, keep it
+            # ── Min-green enforcement (per-TLS) ────────────────────
             elapsed = self._sim_step - self._phase_start_step.get(tls_id, 0)
             current_phase = self._current_phases.get(tls_id, 0)
-            if elapsed < MIN_GREEN_STEPS:
-                # Force keep current phase
+            min_g = self._min_green_steps.get(tls_id, 30)
+            if elapsed < min_g:
                 green_phases = self._green_phases.get(tls_id, [0])
                 for ai, gp in enumerate(green_phases):
                     if gp == current_phase:
@@ -380,52 +405,87 @@ class SumoTrafficEnv(gym.Env):
             else:
                 targets[tls_id] = (0, "")
 
-        # ── 2. Apply yellow where phase changes ──────────────────────
+        # ── 2. Detect phase changes, build per-TLS transition state ─
         changed_tls: list[str] = []
+        tls_transition: dict[str, dict] = {}  # {tid: {yellow_rem, allred_rem, done}}
+
         for tls_id, (target_phase, _) in targets.items():
             current_phase = self._current_phases.get(tls_id, 0)
             if target_phase != current_phase:
                 changed_tls.append(tls_id)
                 self._set_yellow(tls_id, current_phase)
                 self._current_phases[tls_id] = target_phase
-                self._phase_start_step[tls_id] = self._sim_step + self.yellow_time
+                yw = self._yellow_steps.get(tls_id, self.yellow_time)
+                ar = self._allred_steps.get(tls_id, self.allred_time)
+                tls_transition[tls_id] = {
+                    "yellow_rem": yw, "allred_rem": ar, "done": False,
+                }
 
-        # ── 3. Advance yellow period ─────────────────────────────────
-        for _ in range(self.yellow_time):
+        # ── 3. Tick-by-tick transition (per-TLS yellow → allred → green) ─
+        max_transition = max(
+            (s["yellow_rem"] + s["allred_rem"] for s in tls_transition.values()),
+            default=0,
+        )
+
+        for _tick in range(max_transition):
+            for tid, st in tls_transition.items():
+                if st["done"]:
+                    continue
+                if st["yellow_rem"] > 0:
+                    st["yellow_rem"] -= 1
+                    if st["yellow_rem"] == 0:
+                        # Yellow done → set all-red
+                        try:
+                            cur = self._conn.trafficlight.getRedYellowGreenState(tid)
+                            self._conn.trafficlight.setRedYellowGreenState(
+                                tid, "r" * len(cur))
+                        except traci.TraCIException:
+                            pass
+                elif st["allred_rem"] > 0:
+                    st["allred_rem"] -= 1
+                    if st["allred_rem"] == 0:
+                        # All-red done → set green (early finish)
+                        state_str = targets[tid][1]
+                        if state_str:
+                            try:
+                                self._conn.trafficlight.setRedYellowGreenState(
+                                    tid, state_str)
+                            except traci.TraCIException:
+                                pass
+                        self._green_start_step[tid] = self._sim_step
+                        self._phase_start_step[tid] = self._sim_step
+                        st["done"] = True
             self._sim_step_and_track()
 
-        # ── 3b. All-red clearance (let junction clear before next green) ─
-        if self.allred_time > 0 and changed_tls:
-            for tls_id in changed_tls:
-                try:
-                    state = self._conn.trafficlight.getRedYellowGreenState(tls_id)
-                    allred = "r" * len(state)
-                    self._conn.trafficlight.setRedYellowGreenState(tls_id, allred)
-                except traci.TraCIException:
-                    pass
-            for _ in range(self.allred_time):
-                self._sim_step_and_track()
+        # ── 4. Set green for any TLS that didn't finish in the loop ──
+        for tid, st in tls_transition.items():
+            if not st["done"]:
+                state_str = targets[tid][1]
+                if state_str:
+                    try:
+                        self._conn.trafficlight.setRedYellowGreenState(
+                            tid, state_str)
+                    except traci.TraCIException:
+                        pass
+                self._green_start_step[tid] = self._sim_step
+                self._phase_start_step[tid] = self._sim_step
 
-        # ── 4. Set target green states (using state strings, not setPhase) ─
+        # Set green for non-changing TLS (they stay green throughout)
         for tls_id, (_, state_str) in targets.items():
-            if state_str:
-                try:
-                    self._conn.trafficlight.setRedYellowGreenState(tls_id, state_str)
-                except traci.TraCIException:
-                    pass
+            if tls_id not in tls_transition:
+                if state_str:
+                    try:
+                        self._conn.trafficlight.setRedYellowGreenState(
+                            tls_id, state_str)
+                    except traci.TraCIException:
+                        pass
+                if tls_id not in self._green_start_step:
+                    self._green_start_step[tls_id] = self._sim_step
 
         # ── 5. Advance remaining green time ──────────────────────────
-        green_time = max(self.delta_time - self.yellow_time - self.allred_time, 1)
+        green_time = max(self.delta_time - max_transition, 1)
         for _ in range(green_time):
             self._sim_step_and_track()
-            # [Level 2 REMOVED] Tick events each sim step
-            # if self._event_manager:
-            #     msgs = self._event_manager.tick(float(self._sim_step))
-            #     self._active_event_log.extend(msgs)
-
-        # [Level 2 REMOVED] 5b. Maybe inject new random events
-        # if self._event_manager:
-        #     self._maybe_inject_events()
 
         # ── 6. Observe & reward ───────────────────────────────────────
         obs = self._get_observations()
@@ -552,12 +612,16 @@ class SumoTrafficEnv(gym.Env):
         num_phases = max(tls_info.num_phases, 1)
         vec[MAX_INCOMING_EDGES * 3] = cur_phase / num_phases
 
-        # Elapsed time in current phase
-        elapsed = self._sim_step - self._phase_start_step.get(tls_id, 0)
-        vec[MAX_INCOMING_EDGES * 3 + 1] = min(elapsed / 60.0, 1.0)
+        # Elapsed actual green time (per-TLS normalization)
+        green_start = self._green_start_step.get(
+            tls_id, self._phase_start_step.get(tls_id, 0))
+        actual_green_elapsed = self._sim_step - green_start
+        max_g = self._max_green_steps.get(tls_id, 120)
+        vec[MAX_INCOMING_EDGES * 3 + 1] = min(actual_green_elapsed / max_g, 1.0)
 
-        # Min-green satisfied flag
-        vec[MAX_INCOMING_EDGES * 3 + 2] = 1.0 if elapsed >= MIN_GREEN_STEPS else 0.0
+        # Min-green satisfied flag (per-TLS threshold)
+        min_g = self._min_green_steps.get(tls_id, 30)
+        vec[MAX_INCOMING_EDGES * 3 + 2] = 1.0 if actual_green_elapsed >= min_g else 0.0
 
         # [Level 2 REMOVED] Number of active events (normalized)
         # vec[MAX_INCOMING_EDGES * 4 + 3] = min(n_events / 5.0, 1.0)
@@ -608,6 +672,11 @@ class SumoTrafficEnv(gym.Env):
             except Exception:
                 pressure = 0.0
 
+            # Per-TLS transition cost for switch penalty scaling
+            yw = self._yellow_steps.get(tls_id, 6)
+            ar = self._allred_steps.get(tls_id, 4)
+            tc = (yw + ar) / max(self._avg_transition, 1)
+
             rewards[tls_id] = compute_tls_reward(
                 old_waiting=self._prev_waiting.get(tls_id, 0.0),
                 new_waiting=total_wait,
@@ -616,6 +685,7 @@ class SumoTrafficEnv(gym.Env):
                 new_throughput=incoming_veh,
                 pressure=pressure,
                 phase_changed=(tls_id in changed_tls_set) if changed_tls_set else False,
+                transition_cost=tc,
             )
 
             self._prev_waiting[tls_id] = total_wait
