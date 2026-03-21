@@ -189,8 +189,8 @@ def compare(baseline_results, model_results):
     m_wait = avg(model_results, "avg_wait")
     b_queue = avg(baseline_results, "avg_queue")
     m_queue = avg(model_results, "avg_queue")
-    b_tp = sum(r["throughput"] for r in baseline_results)
-    m_tp = sum(r.get("throughput", 0) for r in model_results)
+    b_tp = avg(baseline_results, "throughput")
+    m_tp = avg(model_results, "throughput")
 
     print()
     print("=" * 65)
@@ -214,7 +214,7 @@ def compare(baseline_results, model_results):
     row("Avg Wait Time (s)", b_wait, m_wait)
     row("Avg Queue Length", b_queue, m_queue)
     if b_tp > 0:
-        row("Throughput (arrived)", b_tp, m_tp, fmt="d", lower_better=False)
+        row("Throughput (arrived)", b_tp, m_tp, fmt=".0f", lower_better=False)
 
     print()
     wait_imp = (b_wait - m_wait) / max(b_wait, 0.1) * 100
@@ -251,7 +251,7 @@ def main():
         _PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"))
     ap.add_argument("--episodes", type=int, default=3)
     ap.add_argument("--hidden", type=int, default=256)
-    ap.add_argument("--sim-length", type=int, default=3600)
+    ap.add_argument("--sim-length", type=int, default=900)
     ap.add_argument("--seed", type=int, default=1000)
     args = ap.parse_args()
 
