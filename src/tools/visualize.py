@@ -702,11 +702,145 @@ class Visualizer:
         self._update_tls_var("candidate_off", str(n_off))
 
 
+# ── Baseline visualizer (no AI, default timing through same env) ──────
+
+class BaselineVisualizer:
+    """Run SUMO-gui with default timing (no AI) through the same env."""
+
+    def __init__(self, net_file, route_file, sumo_cfg,
+                 delta_time=30, sim_length=1800, seed=1000, speed=0.05):
+        self.net_file = net_file
+        self.route_file = route_file
+        self.sumo_cfg = sumo_cfg
+        self.delta_time = delta_time
+        self.sim_length = sim_length
+        self.seed = seed
+        self.speed = speed
+        self._stop = False
+
+    def run(self):
+        self._build_panel()
+        self._sim_thread = threading.Thread(target=self._run_sim, daemon=True)
+        self._sim_thread.start()
+        self.root.mainloop()
+
+    def _build_panel(self):
+        self.root = tk.Tk()
+        self.root.title("FlowMind AI - Baseline (No AI)")
+        self.root.geometry("400x300")
+        self.root.configure(bg=BG)
+        self.root.attributes("-topmost", True)
+
+        tk.Label(self.root, text="Baseline (Default Timing)",
+                 font=("Segoe UI", 14, "bold"), fg=RED, bg=BG
+                 ).pack(padx=10, pady=(10, 5))
+
+        self._status_var = tk.StringVar(value="Starting...")
+        tk.Label(self.root, textvariable=self._status_var,
+                 font=("Segoe UI", 10), fg=FG2, bg=BG).pack()
+
+        mf = tk.LabelFrame(self.root, text=" Live Metrics ",
+                           font=("Segoe UI", 10, "bold"), fg=FG, bg=BG,
+                           padx=10, pady=8)
+        mf.pack(fill=tk.X, padx=10, pady=10)
+
+        self._metrics = {}
+        for i, (key, text) in enumerate([
+            ("sim_time", "Sim Time"), ("vehicles", "Vehicles"),
+            ("avg_wait", "Avg Wait (s)"), ("avg_queue", "Avg Queue"),
+            ("throughput", "Throughput"),
+        ]):
+            tk.Label(mf, text=text + ":", font=("Segoe UI", 9),
+                     fg=FG2, bg=BG, anchor=tk.W).grid(row=i, column=0, sticky=tk.W, pady=2)
+            var = tk.StringVar(value="--")
+            tk.Label(mf, textvariable=var, font=("Consolas", 10, "bold"),
+                     fg=FG, bg=BG, anchor=tk.E, width=14).grid(row=i, column=1, sticky=tk.E, pady=2)
+            self._metrics[key] = var
+
+        tk.Button(self.root, text="Stop & Close", font=("Segoe UI", 10, "bold"),
+                  bg=RED, fg="white", width=18, pady=4,
+                  command=self._on_close).pack(pady=10)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self):
+        self._stop = True
+        time.sleep(0.3)
+        self.root.destroy()
+
+    def _run_sim(self):
+        try:
+            env = SumoTrafficEnv(
+                net_file=self.net_file, route_file=self.route_file,
+                sumo_cfg=self.sumo_cfg, delta_time=self.delta_time,
+                sim_length=self.sim_length, gui=True, seed=self.seed,
+            )
+            env.reset(seed=self.seed)
+
+            try:
+                env._conn.gui.setSchema("View #0", "real world")
+                env._conn.gui.setDelay(50)
+            except Exception:
+                pass
+
+            self._status_var.set("Running baseline (no AI)...")
+            terminated = truncated = False
+
+            while not (terminated or truncated) and not self._stop:
+                # "Do nothing" — keep current phase
+                actions = {}
+                for tid in env.tls_ids:
+                    green_phases = env._green_phases.get(tid, [0])
+                    current = env._current_phases.get(tid, green_phases[0])
+                    action = 0
+                    for ai, gp in enumerate(green_phases):
+                        if gp == current:
+                            action = ai
+                            break
+                    actions[tid] = action
+
+                _, _, terminated, truncated, _ = env.step(actions)
+                metrics = env.get_metrics()
+
+                try:
+                    self.root.after(0, lambda: self._metrics["sim_time"].set(f"{metrics.get('sim_time', 0)}s"))
+                    self.root.after(0, lambda: self._metrics["vehicles"].set(str(metrics.get('total_vehicles', 0))))
+                    self.root.after(0, lambda: self._metrics["avg_wait"].set(f"{metrics.get('avg_wait_time', 0):.1f}"))
+                    self.root.after(0, lambda: self._metrics["avg_queue"].set(f"{metrics.get('avg_queue_length', 0):.1f}"))
+                    self.root.after(0, lambda: self._metrics["throughput"].set(str(metrics.get('throughput', 0))))
+                    self.root.after(0, lambda: self._status_var.set(
+                        f"Step | {metrics.get('sim_time', 0)}s | Veh={metrics.get('total_vehicles', 0)}"))
+                except Exception:
+                    pass
+
+                if self.speed > 0:
+                    time.sleep(self.speed)
+
+            try:
+                self.root.after(0, lambda: self._status_var.set("Done!"))
+            except Exception:
+                pass
+            env.close()
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            try:
+                self.root.after(0, lambda: self._status_var.set(f"Error: {e}"))
+            except Exception:
+                pass
+
+
 # ── CLI ────────────────────────────────────────────────────────────────
 
 def main():
     ap = argparse.ArgumentParser(
         description="FlowMind AI - Visualize trained model in SUMO-gui")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--baseline", action="store_true",
+                      help="Run baseline only (no AI, default timing)")
+    mode.add_argument("--ai", action="store_true",
+                      help="Run AI model only (default)")
+    mode.add_argument("--both", action="store_true",
+                      help="Run both baseline and AI side by side")
     ap.add_argument("--model", default=os.path.join(
         _PROJECT_ROOT, "checkpoints", "best_model.pt"))
     ap.add_argument("--net", default=os.path.join(
@@ -723,6 +857,32 @@ def main():
                     help="Delay between steps in seconds (0=max speed)")
     args = ap.parse_args()
 
+    common = dict(
+        net_file=args.net, route_file=args.route, sumo_cfg=args.cfg,
+        delta_time=args.delta_time, sim_length=args.sim_length,
+        seed=args.seed, speed=args.speed,
+    )
+
+    if args.baseline:
+        bl = BaselineVisualizer(**common)
+        bl.run()
+        return
+
+    if args.both:
+        if not os.path.isfile(args.model):
+            print(f"Model not found: {args.model}")
+            sys.exit(1)
+
+        # Launch baseline in a separate thread with its own Tk root
+        def run_baseline_window():
+            bl = BaselineVisualizer(**common)
+            bl.run()
+
+        bl_thread = threading.Thread(target=run_baseline_window, daemon=True)
+        bl_thread.start()
+        time.sleep(2)  # let baseline SUMO-gui start first
+
+    # Default: run AI
     if not os.path.isfile(args.model):
         print(f"Model not found: {args.model}")
         print("Train first: python -m src.tools.rl_dashboard")
@@ -730,14 +890,8 @@ def main():
 
     viz = Visualizer(
         model_path=args.model,
-        net_file=args.net,
-        route_file=args.route,
-        sumo_cfg=args.cfg,
+        **common,
         hidden=args.hidden,
-        delta_time=args.delta_time,
-        sim_length=args.sim_length,
-        seed=args.seed,
-        speed=args.speed,
     )
     viz.run()
 
