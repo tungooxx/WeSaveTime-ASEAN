@@ -89,7 +89,7 @@ class SumoTrafficEnv(gym.Env):
         min_green_phases: int = 2,
         min_incoming: int = 2,
         yellow_time: int = 3,
-        allred_time: int = 2,
+        allred_time: int = 6,  # 3 real seconds at step_length=0.5
         # [Level 1] Pure timing optimization
         # [Level 2 REMOVED] random_events: bool = True,
         # [Level 2 REMOVED] max_concurrent_events: int = 2,
