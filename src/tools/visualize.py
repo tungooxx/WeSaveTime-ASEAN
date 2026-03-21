@@ -533,22 +533,27 @@ class Visualizer:
                 # Update baseline vs AI comparison
                 self._update_comparison(metrics)
 
-                # Log TLS phase changes
+                # Log TLS phase changes with cycle timing
                 changes_this_step = []
+                yellow_t = env.yellow_time * 0.5   # real seconds
+                allred_t = env.allred_time * 0.5   # real seconds
+                green_t = max(env.delta_time - env.yellow_time - env.allred_time, 1) * 0.5
                 for tid in env.tls_ids:
                     cur_phase = env._current_phases.get(tid, 0)
                     old_phase = prev_phases.get(tid, -1)
                     if old_phase != cur_phase:
                         road = tls_road_names.get(tid, tid)
-                        # Get phase state string from SUMO
                         try:
                             state_str = env._conn.trafficlight.getRedYellowGreenState(tid)
                         except Exception:
                             state_str = "?"
-                        dur = env.delta_time
+                        # Count R/Y/G in the state string
+                        n_g = sum(1 for c in state_str if c in ('G', 'g'))
+                        n_r = sum(1 for c in state_str if c in ('r', 'R'))
                         changes_this_step.append(
-                            f"  {road[:28]:<28s} P{old_phase}->P{cur_phase} "
-                            f"d={dur}s [{state_str[:16]}]"
+                            f"  {road[:24]:<24s} P{old_phase}->P{cur_phase} "
+                            f"G={green_t:.0f}s Y={yellow_t:.0f}s R={allred_t:.0f}s "
+                            f"[{state_str[:14]}] G:{n_g} R:{n_r}"
                         )
                     prev_phases[tid] = cur_phase
 
