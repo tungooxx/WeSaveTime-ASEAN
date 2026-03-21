@@ -625,7 +625,6 @@ def main():
         ("4a. Create vehicle types",     create_vehicle_types),
         ("4b. Create edge weights",      create_edge_weights),
         ("5. Generate traffic demand",   generate_demand),
-        ("5b. Add candidate TLS",       add_candidate_tls),
         ("6. Create SUMO config",        create_config),
     ]
 
