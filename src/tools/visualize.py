@@ -111,8 +111,8 @@ class Visualizer:
     """Run trained model in SUMO-gui with overlays and stats panel."""
 
     def __init__(self, model_path: str, net_file: str, route_file: str,
-                 sumo_cfg: str, hidden: int = 256, delta_time: int = 10,
-                 sim_length: int = 3600, seed: int = 1000, speed: float = 0.05):
+                 sumo_cfg: str, hidden: int = 256, delta_time: int = 30,
+                 sim_length: int = 1800, seed: int = 1000, speed: float = 0.05):
         self.model_path = model_path
         self.net_file = net_file
         self.route_file = route_file
@@ -136,7 +136,7 @@ class Visualizer:
     def _build_panel(self):
         self.root = tk.Tk()
         self.root.title("FlowMind AI - Live Visualization")
-        self.root.geometry("520x780")
+        self.root.geometry("560x880")
         self.root.configure(bg=BG)
         self.root.attributes("-topmost", True)
 
@@ -174,28 +174,61 @@ class Visualizer:
                 row=i, column=1, sticky=tk.E, pady=2)
             self._metrics[key] = var
 
-        # TLS decisions frame
-        tf = tk.LabelFrame(self.root, text=" Agent TLS Decisions ",
+        # ── Baseline vs AI Comparison ───────────────────────────────
+        cf = tk.LabelFrame(self.root, text=" Baseline vs AI (Live) ",
                            font=("Segoe UI", 10, "bold"), fg=FG, bg=BG,
                            padx=10, pady=8)
-        tf.pack(fill=tk.X, padx=10, pady=5)
+        cf.pack(fill=tk.X, padx=10, pady=5)
 
-        self._tls_vars = {}
-        tls_labels = [
-            ("existing_keep", "Existing: Keep", GREEN),
-            ("existing_remove", "Existing: Remove", RED),
-            ("candidate_add", "Candidate: Add TLS", ORANGE),
-            ("candidate_off", "Candidate: No TLS", FG2),
+        # Load baseline from comparison.json if available
+        self._baseline_data = {"avg_wait": 0, "avg_queue": 0, "throughput": 0}
+        comp_file = os.path.join(_PROJECT_ROOT, "checkpoints", "comparison.json")
+        if os.path.isfile(comp_file):
+            try:
+                with open(comp_file) as f:
+                    cdata = json.load(f)
+                bl = cdata.get("baseline", {})
+                self._baseline_data = {
+                    "avg_wait": bl.get("avg_wait", 0),
+                    "avg_queue": bl.get("avg_queue", 0),
+                    "throughput": bl.get("throughput", 0),
+                }
+            except Exception:
+                pass
+
+        # Header row
+        tk.Label(cf, text="Metric", font=("Segoe UI", 9, "bold"),
+                 fg=FG2, bg=BG, anchor=tk.W).grid(row=0, column=0, sticky=tk.W)
+        tk.Label(cf, text="Baseline", font=("Segoe UI", 9, "bold"),
+                 fg=RED, bg=BG, anchor=tk.E, width=10).grid(row=0, column=1, sticky=tk.E)
+        tk.Label(cf, text="AI (Live)", font=("Segoe UI", 9, "bold"),
+                 fg=GREEN, bg=BG, anchor=tk.E, width=10).grid(row=0, column=2, sticky=tk.E)
+        tk.Label(cf, text="Change", font=("Segoe UI", 9, "bold"),
+                 fg=BLUE, bg=BG, anchor=tk.E, width=10).grid(row=0, column=3, sticky=tk.E)
+
+        self._comp_vars = {}
+        comp_rows = [
+            ("wait", "Wait Time (s)"),
+            ("queue", "Queue Length"),
+            ("throughput", "Throughput"),
         ]
-        for i, (key, text, color) in enumerate(tls_labels):
-            tk.Label(tf, text=text + ":", font=("Segoe UI", 9),
-                     fg=color, bg=BG, anchor=tk.W).grid(
-                row=i, column=0, sticky=tk.W, pady=2)
-            var = tk.StringVar(value="0")
-            tk.Label(tf, textvariable=var, font=("Consolas", 11, "bold"),
-                     fg=color, bg=BG, anchor=tk.E, width=6).grid(
-                row=i, column=1, sticky=tk.E, pady=2)
-            self._tls_vars[key] = var
+        for i, (key, label) in enumerate(comp_rows, start=1):
+            tk.Label(cf, text=label, font=("Segoe UI", 9),
+                     fg=FG2, bg=BG, anchor=tk.W).grid(row=i, column=0, sticky=tk.W, pady=2)
+            # Baseline value (static)
+            bl_val = self._baseline_data.get(f"avg_{key}" if key != "throughput" else key, 0)
+            bl_text = f"{bl_val:.1f}" if key != "throughput" else f"{bl_val:.0f}"
+            tk.Label(cf, text=bl_text, font=("Consolas", 10),
+                     fg=RED, bg=BG, anchor=tk.E, width=10).grid(row=i, column=1, sticky=tk.E, pady=2)
+            # AI value (live)
+            ai_var = tk.StringVar(value="--")
+            tk.Label(cf, textvariable=ai_var, font=("Consolas", 10, "bold"),
+                     fg=GREEN, bg=BG, anchor=tk.E, width=10).grid(row=i, column=2, sticky=tk.E, pady=2)
+            # Change (live)
+            chg_var = tk.StringVar(value="--")
+            tk.Label(cf, textvariable=chg_var, font=("Consolas", 10, "bold"),
+                     fg=BLUE, bg=BG, anchor=tk.E, width=10).grid(row=i, column=3, sticky=tk.E, pady=2)
+            self._comp_vars[key] = (ai_var, chg_var, bl_val)
 
         # [Level 2 REMOVED] Active events display removed
 
@@ -328,6 +361,37 @@ class Visualizer:
             self.root.after(0, lambda: self._status_var.set(msg))
         except Exception:
             pass
+
+    def _update_comparison(self, metrics):
+        """Update the baseline vs AI comparison panel."""
+        wait = metrics.get("avg_wait_time", 0)
+        queue = metrics.get("avg_queue_length", 0)
+        throughput = metrics.get("throughput", 0)
+
+        updates = {
+            "wait": wait,
+            "queue": queue,
+            "throughput": throughput,
+        }
+        for key, ai_val in updates.items():
+            ai_var, chg_var, bl_val = self._comp_vars[key]
+            if key == "throughput":
+                ai_text = f"{ai_val:.0f}"
+            else:
+                ai_text = f"{ai_val:.1f}"
+
+            if bl_val > 0:
+                pct = (ai_val - bl_val) / bl_val * 100
+                sign = "+" if pct >= 0 else ""
+                chg_text = f"{sign}{pct:.0f}%"
+            else:
+                chg_text = "--"
+
+            try:
+                self.root.after(0, lambda v=ai_var, t=ai_text: v.set(t))
+                self.root.after(0, lambda v=chg_var, t=chg_text: v.set(t))
+            except Exception:
+                pass
 
     def _append_log(self, text: str, tag: str = ""):
         """Thread-safe append to the TLS action log."""
@@ -465,6 +529,9 @@ class Visualizer:
                 self._update_var("avg_queue", f"{metrics.get('avg_queue_length', 0):.1f}")
                 self._update_var("reward", f"{step_reward:+.3f}")
                 self._update_var("total_reward", f"{total_reward:+.1f}")
+
+                # Update baseline vs AI comparison
+                self._update_comparison(metrics)
 
                 # Log TLS phase changes
                 changes_this_step = []
@@ -649,8 +716,8 @@ def main():
     ap.add_argument("--cfg", default=os.path.join(
         _PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"))
     ap.add_argument("--hidden", type=int, default=256)
-    ap.add_argument("--delta-time", type=int, default=10)
-    ap.add_argument("--sim-length", type=int, default=3600)
+    ap.add_argument("--delta-time", type=int, default=30)
+    ap.add_argument("--sim-length", type=int, default=1800)
     ap.add_argument("--seed", type=int, default=1000)
     ap.add_argument("--speed", type=float, default=0.05,
                     help="Delay between steps in seconds (0=max speed)")
