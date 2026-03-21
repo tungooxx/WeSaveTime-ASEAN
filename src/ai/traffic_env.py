@@ -364,7 +364,7 @@ class SumoTrafficEnv(gym.Env):
 
         # Force roundabout-entry TLS (trivial, not AI-controlled) to permanent
         # green so they don't randomly block traffic with their default programs
-        self._set_roundabout_tls_green()
+        self._set_trivial_tls_green()
 
         obs = self._get_observations()
         return obs, {"step": self._sim_step, "sim_time": self._sim_step}
@@ -514,45 +514,58 @@ class SumoTrafficEnv(gym.Env):
 
     # ── Yellow helper ─────────────────────────────────────────────────
 
-    def _set_roundabout_tls_green(self) -> None:
-        """Force trivial roundabout-entry TLS to permanent green.
+    def _set_trivial_tls_green(self) -> None:
+        """Force all non-AI trivial TLS to permanent green.
 
-        Only affects TLS where ALL green phases have the same pattern
-        (single-direction entries like GGG/yyy/rrr).  Multi-phase
-        intersections with conflicting directions are left on their
-        default programs to avoid giving green to both sides at once.
+        Targets two categories:
+        1. Single-phase TLS (pedestrian crossings, median breaks) — only
+           1 green phase, cycling serves no purpose. These are common on
+           arterials like Nguyễn Văn Linh (25+ trivial TLS).
+        2. Uniform-phase TLS (roundabout entries) — all phases have the
+           same pattern (GGG/yyy/rrr), no conflicting directions.
+
+        Multi-phase intersections with 2+ distinct green phases and
+        conflicting directions are left on default programs.
         """
-        all_tls_ids = set()
         try:
             all_tls_ids = set(self._conn.trafficlight.getIDList())
         except traci.TraCIException:
             return
+
         agent_tls = set(self.tls_ids)
+        count = 0
         for tid in all_tls_ids - agent_tls:
-            # Check if this TLS has conflicting phases
             tls_info = self._tls_meta.get(tid)
             if tls_info is None:
                 continue
-            # Only override if ALL phases are non-conflicting:
-            # A trivial entry signal has phases like GGG, yyy, rrr
-            # (every phase is uniform — all G, all y, or all r).
-            # If any phase has a mix of G and r, it's a real intersection.
-            is_trivial = True
-            for p in tls_info.phases:
-                greens = set(c for c in p.state if c in ('G', 'g'))
-                reds = set(c for c in p.state if c in ('r', 'R'))
-                if greens and reds:
-                    # This phase has both green and red — real intersection
-                    is_trivial = False
-                    break
-            if not is_trivial:
+
+            # Category 1: Single green phase — always force green
+            if tls_info.num_green_phases <= 1:
+                try:
+                    state = self._conn.trafficlight.getRedYellowGreenState(tid)
+                    self._conn.trafficlight.setRedYellowGreenState(
+                        tid, "G" * len(state))
+                    count += 1
+                except traci.TraCIException:
+                    pass
                 continue
-            try:
-                state = self._conn.trafficlight.getRedYellowGreenState(tid)
-                allgreen = "G" * len(state)
-                self._conn.trafficlight.setRedYellowGreenState(tid, allgreen)
-            except traci.TraCIException:
-                pass
+
+            # Category 2: Multi-phase but all uniform (roundabout entries)
+            is_uniform = True
+            for p in tls_info.phases:
+                has_green = any(c in ('G', 'g') for c in p.state)
+                has_red = any(c in ('r', 'R') for c in p.state)
+                if has_green and has_red:
+                    is_uniform = False
+                    break
+            if is_uniform:
+                try:
+                    state = self._conn.trafficlight.getRedYellowGreenState(tid)
+                    self._conn.trafficlight.setRedYellowGreenState(
+                        tid, "G" * len(state))
+                    count += 1
+                except traci.TraCIException:
+                    pass
 
     def _set_yellow(self, tls_id: str, _current_phase: int) -> None:
         """Turn all current greens to yellow for the transition period."""
