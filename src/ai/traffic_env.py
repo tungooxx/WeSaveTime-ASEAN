@@ -83,7 +83,7 @@ class SumoTrafficEnv(gym.Env):
         route_file: str,
         sumo_cfg: Optional[str] = None,
         delta_time: int = 30,
-        sim_length: int = 3600,
+        sim_length: int = 1800,  # sim steps (= 900 real seconds at step_length=0.5)
         gui: bool = False,
         seed: int = 42,
         min_green_phases: int = 2,

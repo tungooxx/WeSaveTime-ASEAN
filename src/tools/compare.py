@@ -36,14 +36,32 @@ from src.ai.dqn_agent import TrafficDQNAgent
 from src.ai.mappo_agent import MAPPOAgent
 
 
-def run_baseline(net_file, route_file, sumo_cfg, sim_length=3600,
+def run_baseline(net_file, route_file, sumo_cfg, sim_length=900,
                  seed=1000, episodes=3):
-    """Run SUMO with default timing (no AI), collect metrics per episode."""
+    """Run SUMO with default timing (no AI), collect metrics per episode.
+
+    Measures the SAME edges as the AI env (TLS incoming edges only)
+    so the comparison is apples-to-apples.
+    """
     import shutil
+    import sumolib
+
     binary = shutil.which("sumo")
     if not binary:
         sumo_home = os.environ.get("SUMO_HOME", "")
         binary = os.path.join(sumo_home, "bin", "sumo") if sumo_home else "sumo"
+
+    # Discover TLS incoming edges (same as AI env measures)
+    from src.simulation.tls_metadata import TLSMetadata
+    tls_meta = TLSMetadata(net_file)
+    non_trivial = tls_meta.get_non_trivial()
+    tls_edge_ids: list[str] = []
+    seen = set()
+    for info in non_trivial:
+        for eid in info.incoming_edges:
+            if eid not in seen:
+                tls_edge_ids.append(eid)
+                seen.add(eid)
 
     results = []
     for ep in range(1, episodes + 1):
@@ -53,42 +71,36 @@ def run_baseline(net_file, route_file, sumo_cfg, sim_length=3600,
         except Exception:
             pass
 
+        # Use sumocfg as-is (step-length=0.5 from config, matching AI env)
         cmd = [binary, "-c", sumo_cfg,
                "--seed", str(seed + ep),
                "--no-step-log", "true",
                "--no-warnings", "true",
                "--collision.action", "none",
-               "--time-to-teleport", "300",
-               "--step-length", "1"]
+               "--time-to-teleport", "300"]
         traci.start(cmd, label=label)
         conn = traci.getConnection(label)
-
-        import traci.constants as tc
-
-        # Use edge-level calls in batch (no per-vehicle loops)
-        edge_ids = [e for e in conn.edge.getIDList() if not e.startswith(":")]
 
         wait_samples = []
         queue_samples = []
         total_throughput = 0
         t0 = time.time()
 
-        # Step through simulation
+        # sim_length steps at step_length=0.5 from sumocfg
         for step in range(sim_length):
             conn.simulationStep()
 
-            # Track throughput EVERY step (per-step count)
             try:
                 total_throughput += conn.simulation.getArrivedNumber()
             except Exception:
                 pass
 
-            # Sample wait/queue every 200 steps (for averaging)
-            if step % 200 == 0 and step > 0:
+            # Sample every 100 steps on TLS incoming edges only
+            if step % 100 == 0 and step > 0:
                 step_wait = 0.0
                 step_queue = 0
                 count = 0
-                for eid in edge_ids[:500]:  # sample up to 500 edges
+                for eid in tls_edge_ids:
                     try:
                         step_queue += conn.edge.getLastStepHaltingNumber(eid)
                         step_wait += conn.edge.getWaitingTime(eid)
@@ -251,7 +263,8 @@ def main():
         _PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"))
     ap.add_argument("--episodes", type=int, default=3)
     ap.add_argument("--hidden", type=int, default=256)
-    ap.add_argument("--sim-length", type=int, default=900)
+    ap.add_argument("--sim-length", type=int, default=1800,
+                        help="Sim steps (1800 = 900 real seconds at step_length=0.5)")
     ap.add_argument("--seed", type=int, default=1000)
     args = ap.parse_args()
 
