@@ -119,6 +119,7 @@ class TrainingThread(threading.Thread):
                     save_every=self.params["save_every"],
                     seed=self.params["seed"],
                     gui=self.params.get("gui", False),
+                    obs_dim=self.params.get("obs_dim", 51),
                     on_episode=lambda ep: self.metric_q.put(("episode", ep)),
                     on_status=lambda msg: self.metric_q.put(("status", msg)),
                     stop_check=lambda: self.stop_event.is_set(),
@@ -185,6 +186,18 @@ class RLDashboard:
                              padx=10, pady=8)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
 
+        # Level selector
+        level_frame = tk.Frame(left, bg=BG)
+        level_frame.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 8))
+        tk.Label(level_frame, text="Training Level:", font=("Segoe UI", 9, "bold"),
+                 fg=FG, bg=BG).pack(side=tk.LEFT)
+        self._level_var = tk.StringVar(value="Level 2")
+        level_menu = tk.OptionMenu(level_frame, self._level_var,
+                                    "Level 1 (38-dim obs)", "Level 2 (50-dim obs + pressure)")
+        level_menu.config(bg=BG2, fg=FG, font=("Segoe UI", 9),
+                         highlightthickness=0, activebackground="#585b70")
+        level_menu.pack(side=tk.LEFT, padx=5)
+
         self._params: dict[str, tk.Variable] = {}
         param_defs = [
             ("episodes",       "Episodes",        100,    int),
@@ -203,18 +216,18 @@ class RLDashboard:
         for i, (key, label, default, _) in enumerate(param_defs):
             tk.Label(left, text=label + ":", font=("Segoe UI", 9),
                      fg=FG2, bg=BG, anchor=tk.W).grid(
-                row=i, column=0, sticky=tk.W, pady=2)
+                row=i + 1, column=0, sticky=tk.W, pady=2)
             var = tk.StringVar(value=str(default))
             self._params[key] = var
             entry = tk.Entry(left, textvariable=var, width=12,
                              bg=BG2, fg=FG, insertbackground=FG,
                              font=("Consolas", 10))
-            entry.grid(row=i, column=1, padx=(10, 0), pady=2)
+            entry.grid(row=i + 1, column=1, padx=(10, 0), pady=2)
             self._param_entries.append(entry)
         self._param_types = {k: t for k, _, _, t in param_defs}
 
         # File paths
-        row = len(param_defs)
+        row = len(param_defs) + 1
         tk.Label(left, text="Network:", font=("Segoe UI", 9),
                  fg=FG2, bg=BG).grid(row=row, column=0, sticky=tk.W, pady=(10, 2))
         self._net_var = tk.StringVar(value=_DANANG["net"])
@@ -392,6 +405,9 @@ class RLDashboard:
         p["gui"] = self._gui_var.get()
         p["dyna"] = self._dyna_var.get()
         p["algorithm"] = self._algo_var.get()
+        # Level selection: Level 1 = 39-dim obs, Level 2 = 51-dim obs (with pressure)
+        level = self._level_var.get()
+        p["obs_dim"] = 50 if "Level 2" in level else 38
         return p
 
     def _start_training(self):

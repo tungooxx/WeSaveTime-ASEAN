@@ -540,25 +540,30 @@ class Visualizer:
                     old_phase = prev_phases.get(tid, -1)
                     if old_phase != cur_phase:
                         road = tls_road_names.get(tid, tid)
-                        try:
-                            state_str = env._conn.trafficlight.getRedYellowGreenState(tid)
-                        except Exception:
-                            state_str = "?"
-                        # Per-TLS timing
-                        yw = env._yellow_steps.get(tid, 6) * 0.5
-                        ar = env._allred_steps.get(tid, 4) * 0.5
-                        gr = max(env.delta_time - env._yellow_steps.get(tid, 6)
-                                 - env._allred_steps.get(tid, 4), 1) * 0.5
-                        # Get tier from geometry
+                        # Per-TLS timing from geometry + AI's chosen duration
                         tls_info = env._tls_map.get(tid)
-                        tier = tls_info.geometry.tier[:3].upper() if (
-                            tls_info and tls_info.geometry) else "???"
-                        n_g = sum(1 for c in state_str if c in ('G', 'g'))
-                        n_r = sum(1 for c in state_str if c in ('r', 'R'))
+                        g = tls_info.geometry if tls_info else None
+                        yw = g.yellow_s if g else 3.0
+                        ar = g.allred_s if g else 2.0
+                        tier = g.tier[:3].upper() if g else "???"
+                        # Green = AI's committed countdown (real seconds)
+                        cd = env._countdown.get(tid, 0)
+                        gr = cd * 0.5 if cd > 0 else (g.min_green_s if g else 15.0)
+                        # Duration label
+                        levels = env._duration_levels.get(tid, [30, 60, 90])
+                        if cd >= levels[-1]:
+                            dur_label = "LONG"
+                        elif cd >= levels[1]:
+                            dur_label = "MED"
+                        else:
+                            dur_label = "SHORT"
+                        n_phases = tls_info.num_green_phases if tls_info else 2
+                        total_red = (n_phases - 1) * (gr + yw + ar)
+                        cycle = n_phases * (gr + yw + ar)
                         changes_this_step.append(
-                            f"  {road[:20]:<20s} [{tier}] P{old_phase}->P{cur_phase} "
-                            f"G={gr:.0f}s Y={yw:.0f}s R={ar:.0f}s "
-                            f"[{state_str[:12]}] G:{n_g} R:{n_r}"
+                            f"  {road[:18]:<18s} [{tier}] P{old_phase}->P{cur_phase} "
+                            f"G={gr:.0f}s({dur_label}) Y={yw:.0f}s R={total_red:.0f}s "
+                            f"C={cycle:.0f}s"
                         )
                     prev_phases[tid] = cur_phase
 

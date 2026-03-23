@@ -30,25 +30,25 @@ from .reward import compute_tls_reward
 
 # ── Constants ─────────────────────────────────────────────────────────
 MAX_INCOMING_EDGES = 12     # pad/truncate incoming edges to this size
-MAX_GREEN_PHASES = 7        # actions 0-6: choose a green phase
-ACT_OFF = -1                # OFF action DISABLED (was 7: all-green / yield)
-MIN_GREEN_STEPS = 60        # minimum green time before allowing phase change (30s real @ step_length=0.5)
+MAX_GREEN_PHASES = 7        # phases 0-6
+NUM_DURATION_LEVELS = 3     # SHORT / MEDIUM / LONG green duration
+ACT_OFF = -1                # OFF action DISABLED
+MIN_GREEN_STEPS = 60        # fallback minimum green (30s real @ step_length=0.5)
 
 # Observation layout per TLS (fixed size for parameter sharing):
 #   [0..11]   queue per edge          (12)
 #   [12..23]  wait per edge           (12)
 #   [24..35]  lane density per edge   (12)
-#   [Level 2 REMOVED] [36..47]  edge blocked by event   (12)
-#   [36]      current phase ratio     (1)
-#   [37]      elapsed time ratio      (1)
-#   [38]      min_green satisfied     (1)
-#   [Level 2 REMOVED] [51]      num active events       (1)
-OBS_DIM = MAX_INCOMING_EDGES * 3 + 3   # 39 (Level 1 only: no event features)
+#   [36..47]  pressure per edge       (12)  — Level 2: PressLight state
+#   [48]      current phase ratio     (1)
+#   [49]      countdown remaining     (1)
+OBS_DIM = MAX_INCOMING_EDGES * 4 + 2   # 50 (Level 2: with pressure)
 OLD_OBS_DIM = MAX_INCOMING_EDGES * 2 + 2  # 26 (v1 layout)
-ACT_DIM = MAX_GREEN_PHASES             # 7 (no OFF action — agent must always pick a phase)
-
-
-V2_OBS_DIM = MAX_INCOMING_EDGES * 3 + 3  # 39 (same as OBS_DIM now)
+L1_OBS_DIM = MAX_INCOMING_EDGES * 3 + 2  # 38 (Level 1 layout: no pressure, no free flag)
+# Action = phase × duration: 7 phases × 3 durations = 21 actions
+# action // 3 = phase index (0-6)
+# action % 3  = duration (0=SHORT/ped_min, 1=MEDIUM, 2=LONG/max_green)
+ACT_DIM = MAX_GREEN_PHASES * NUM_DURATION_LEVELS  # 21
 
 
 def remap_obs_for_old_model(obs_new: np.ndarray, target_dim: int = OLD_OBS_DIM
@@ -57,16 +57,23 @@ def remap_obs_for_old_model(obs_new: np.ndarray, target_dim: int = OLD_OBS_DIM
 
     Supported target dims:
       26 (v1): [queue(12), wait(12), phase_ratio, elapsed]
-      39 (current): [queue(12), wait(12), density(12), phase_ratio, elapsed, min_green]
+      39 (L1): [queue(12), wait(12), density(12), phase_ratio, countdown, flag]
+      51 (L2): [queue(12), wait(12), density(12), pressure(12), phase, countdown, flag]
     """
     if target_dim == OLD_OBS_DIM:  # 26
         obs = np.zeros(OLD_OBS_DIM, dtype=np.float32)
         obs[:12] = obs_new[:12]                             # queue
         obs[12:24] = obs_new[12:24]                         # wait
-        obs[24] = obs_new[MAX_INCOMING_EDGES * 3]           # phase_ratio (slot 36)
-        obs[25] = obs_new[MAX_INCOMING_EDGES * 3 + 1]       # elapsed (slot 37)
+        obs[24] = obs_new[MAX_INCOMING_EDGES * 4]           # phase_ratio (slot 48)
+        obs[25] = obs_new[MAX_INCOMING_EDGES * 4 + 1]       # countdown (slot 49)
         return obs
-    elif target_dim == V2_OBS_DIM:  # 39 (same as current OBS_DIM)
+    elif target_dim == L1_OBS_DIM:  # 38 (Level 1 — drop pressure)
+        obs = np.zeros(L1_OBS_DIM, dtype=np.float32)
+        obs[:36] = obs_new[:36]                             # queue + wait + density
+        obs[36] = obs_new[MAX_INCOMING_EDGES * 4]           # phase_ratio
+        obs[37] = obs_new[MAX_INCOMING_EDGES * 4 + 1]       # countdown
+        return obs
+    elif target_dim == OBS_DIM:  # 51 (Level 2 — current)
         return obs_new.copy()
     else:
         return obs_new[:target_dim]
@@ -158,6 +165,17 @@ class SumoTrafficEnv(gym.Env):
                 self._min_green_steps[tls.id] = 30
                 self._max_green_steps[tls.id] = 90
 
+        # Per-TLS duration levels: SHORT, MEDIUM, LONG (in sim steps)
+        # SHORT = min_green (pedestrian minimum — just enough to cross)
+        # MEDIUM = midpoint between min and max
+        # LONG = max_green (full capacity serving)
+        self._duration_levels: dict[str, list[int]] = {}
+        for tid in self.tls_ids:
+            mn = self._min_green_steps[tid]
+            mx = self._max_green_steps[tid]
+            mid = (mn + mx) // 2
+            self._duration_levels[tid] = [mn, mid, mx]
+
         # Precompute avg transition for reward normalization
         transitions = [
             self._yellow_steps[t] + self._allred_steps[t] for t in self.tls_ids
@@ -205,6 +223,7 @@ class SumoTrafficEnv(gym.Env):
         self._current_phases: dict[str, int] = {}
         self._phase_start_step: dict[str, int] = {}
         self._green_start_step: dict[str, int] = {}  # when actual green began
+        self._countdown: dict[str, int] = {}  # Vietnamese countdown timer (sim steps remaining)
 
     # ── Properties ────────────────────────────────────────────────────
 
@@ -213,9 +232,17 @@ class SumoTrafficEnv(gym.Env):
         return len(self.tls_ids)
 
     def get_valid_actions(self, tls_id: str) -> list[int]:
-        """Valid action indices for *tls_id* (0..N-1 = green phases)."""
-        phase_actions = list(range(len(self._green_phases.get(tls_id, [0]))))
-        return phase_actions
+        """Valid action indices: phase × duration.
+
+        action // 3 = phase index, action % 3 = duration level.
+        E.g. for 4 green phases: actions [0..11] are valid (4 × 3).
+        """
+        n_phases = len(self._green_phases.get(tls_id, [0]))
+        return list(range(n_phases * NUM_DURATION_LEVELS))
+
+    def decode_action(self, action: int) -> tuple[int, int]:
+        """Decode combined action into (phase_index, duration_level)."""
+        return action // NUM_DURATION_LEVELS, action % NUM_DURATION_LEVELS
 
     # [TLS CANDIDATE COMMENTED OUT] ── Candidate TLS helpers ──────
     # All candidate TLS tracking, action stats, snapshots, details,
@@ -327,6 +354,7 @@ class SumoTrafficEnv(gym.Env):
         self._current_phases.clear()
         self._phase_start_step.clear()
         self._green_start_step.clear()
+        self._countdown.clear()
 
         # Initialise per-TLS tracking and validate green phases at runtime
         for tls_id in self.tls_ids:
@@ -372,56 +400,71 @@ class SumoTrafficEnv(gym.Env):
     def step(
         self, actions: dict[str, int]
     ) -> tuple[dict[str, np.ndarray], dict[str, float], bool, bool, dict]:
-        """Apply phase actions, advance SUMO by *delta_time* seconds, return
-        (obs, rewards, terminated, truncated, info)."""
+        """Apply phase actions with Vietnamese countdown timer model.
 
-        # ── 1. Resolve target phases and cache state strings ─────────
-        # We use setRedYellowGreenState exclusively (not setPhase) because
-        # setRedYellowGreenState switches the TLS to a custom 1-phase program,
-        # making a subsequent setPhase fail with "not in allowed range".
-        targets: dict[str, tuple[int, str]] = {}  # tls_id -> (phase_idx, state_str)
+        Each TLS commits to a full green duration when switching phases.
+        Like real Vietnamese signals with countdown displays, the green
+        time is set upfront and runs to completion before the AI decides
+        again.  TLS with active countdowns are locked — the AI's action
+        is ignored until the countdown expires.
+
+        Advances SUMO by *delta_time* sim steps per call."""
+
+        # ── 1. Decode actions: phase + duration (countdown lock) ────
+        targets: dict[str, tuple[int, str]] = {}
+        changed_tls: list[str] = []
+        chosen_duration: dict[str, int] = {}  # tid -> duration in sim steps
 
         for tls_id, action_idx in actions.items():
-            # ── Min-green enforcement (per-TLS) ────────────────────
-            elapsed = self._sim_step - self._phase_start_step.get(tls_id, 0)
             current_phase = self._current_phases.get(tls_id, 0)
-            min_g = self._min_green_steps.get(tls_id, 30)
-            if elapsed < min_g:
+
+            # If countdown active, force keep current phase (locked)
+            if self._countdown.get(tls_id, 0) > 0:
                 green_phases = self._green_phases.get(tls_id, [0])
                 for ai, gp in enumerate(green_phases):
                     if gp == current_phase:
-                        action_idx = ai
+                        action_idx = ai * NUM_DURATION_LEVELS  # keep same, SHORT
                         break
 
+            # Decode: phase index + duration level
+            phase_idx, dur_level = self.decode_action(action_idx)
             green_phases = self._green_phases.get(tls_id, [0])
             target_phase = (
-                green_phases[action_idx]
-                if action_idx < len(green_phases)
+                green_phases[phase_idx]
+                if phase_idx < len(green_phases)
                 else green_phases[0]
             )
+
+            # Get duration from per-TLS levels
+            levels = self._duration_levels.get(tls_id, [30, 60, 90])
+            dur_level = min(dur_level, len(levels) - 1)
+            chosen_duration[tls_id] = levels[dur_level]
+
             tls_info = self._tls_map.get(tls_id)
             if tls_info and target_phase < len(tls_info.phases):
                 targets[tls_id] = (target_phase, tls_info.phases[target_phase].state)
             else:
                 targets[tls_id] = (0, "")
 
-        # ── 2. Detect phase changes, build per-TLS transition state ─
-        changed_tls: list[str] = []
-        tls_transition: dict[str, dict] = {}  # {tid: {yellow_rem, allred_rem, done}}
-
-        for tls_id, (target_phase, _) in targets.items():
-            current_phase = self._current_phases.get(tls_id, 0)
-            if target_phase != current_phase:
+            # Detect phase change (only if countdown expired)
+            if target_phase != current_phase and self._countdown.get(tls_id, 0) <= 0:
                 changed_tls.append(tls_id)
-                self._set_yellow(tls_id, current_phase)
-                self._current_phases[tls_id] = target_phase
-                yw = self._yellow_steps.get(tls_id, self.yellow_time)
-                ar = self._allred_steps.get(tls_id, self.allred_time)
-                tls_transition[tls_id] = {
-                    "yellow_rem": yw, "allred_rem": ar, "done": False,
-                }
 
-        # ── 3. Tick-by-tick transition (per-TLS yellow → allred → green) ─
+        # ── 2. Apply transitions for changed TLS ────────────────────
+        tls_transition: dict[str, dict] = {}
+        for tls_id in changed_tls:
+            self._set_yellow(tls_id, self._current_phases.get(tls_id, 0))
+            target_phase = targets[tls_id][0]
+            self._current_phases[tls_id] = target_phase
+            yw = self._yellow_steps.get(tls_id, self.yellow_time)
+            ar = self._allred_steps.get(tls_id, self.allred_time)
+            tls_transition[tls_id] = {
+                "yellow_rem": yw, "allred_rem": ar, "done": False,
+            }
+            # Set countdown = AI's chosen duration (SHORT/MEDIUM/LONG)
+            self._countdown[tls_id] = chosen_duration.get(tls_id, self._min_green_steps.get(tls_id, 30))
+
+        # ── 3. Tick-by-tick transition (per-TLS yellow → allred → green)
         max_transition = max(
             (s["yellow_rem"] + s["allred_rem"] for s in tls_transition.values()),
             default=0,
@@ -434,7 +477,6 @@ class SumoTrafficEnv(gym.Env):
                 if st["yellow_rem"] > 0:
                     st["yellow_rem"] -= 1
                     if st["yellow_rem"] == 0:
-                        # Yellow done → set all-red
                         try:
                             cur = self._conn.trafficlight.getRedYellowGreenState(tid)
                             self._conn.trafficlight.setRedYellowGreenState(
@@ -444,7 +486,6 @@ class SumoTrafficEnv(gym.Env):
                 elif st["allred_rem"] > 0:
                     st["allred_rem"] -= 1
                     if st["allred_rem"] == 0:
-                        # All-red done → set green (early finish)
                         state_str = targets[tid][1]
                         if state_str:
                             try:
@@ -457,7 +498,7 @@ class SumoTrafficEnv(gym.Env):
                         st["done"] = True
             self._sim_step_and_track()
 
-        # ── 4. Set green for any TLS that didn't finish in the loop ──
+        # ── 4. Finalize green states ─────────────────────────────────
         for tid, st in tls_transition.items():
             if not st["done"]:
                 state_str = targets[tid][1]
@@ -470,7 +511,6 @@ class SumoTrafficEnv(gym.Env):
                 self._green_start_step[tid] = self._sim_step
                 self._phase_start_step[tid] = self._sim_step
 
-        # Set green for non-changing TLS (they stay green throughout)
         for tls_id, (_, state_str) in targets.items():
             if tls_id not in tls_transition:
                 if state_str:
@@ -482,10 +522,15 @@ class SumoTrafficEnv(gym.Env):
                 if tls_id not in self._green_start_step:
                     self._green_start_step[tls_id] = self._sim_step
 
-        # ── 5. Advance remaining green time ──────────────────────────
+        # ── 5. Advance green time + decrement countdowns ─────────────
         green_time = max(self.delta_time - max_transition, 1)
         for _ in range(green_time):
             self._sim_step_and_track()
+
+        # Decrement countdowns by full delta_time (total sim steps this call)
+        for tid in self.tls_ids:
+            if self._countdown.get(tid, 0) > 0:
+                self._countdown[tid] = max(0, self._countdown[tid] - self.delta_time)
 
         # ── 6. Observe & reward ───────────────────────────────────────
         obs = self._get_observations()
@@ -584,26 +629,41 @@ class SumoTrafficEnv(gym.Env):
     def _obs_for(self, tls_id: str) -> np.ndarray:
         """Build a fixed-size (OBS_DIM,) observation vector for one TLS.
 
-        Layout: [queue(12), wait(12), density(12),
-                 phase_ratio, elapsed, min_green]
+        Layout (Level 2 — 51 dim):
+          [0..11]   queue per edge          (12)
+          [12..23]  wait per edge           (12)
+          [24..35]  lane density per edge   (12)
+          [36..47]  pressure per edge       (12)  — PressLight state
+          [48]      current phase ratio     (1)
+          [49]      countdown remaining     (1)
+          [50]      countdown expired flag  (1)
         """
         vec = np.zeros(OBS_DIM, dtype=np.float32)
         tls_info = self._tls_map.get(tls_id)
         if tls_info is None:
             return vec
 
-        off_q = 0                        # queue slots
-        off_w = MAX_INCOMING_EDGES       # wait slots
-        off_d = MAX_INCOMING_EDGES * 2   # density slots
-        # [Level 2 REMOVED] off_e = MAX_INCOMING_EDGES * 3   # event blocked slots
+        off_q = 0                        # queue slots [0..11]
+        off_w = MAX_INCOMING_EDGES       # wait slots [12..23]
+        off_d = MAX_INCOMING_EDGES * 2   # density slots [24..35]
+        off_p = MAX_INCOMING_EDGES * 3   # pressure slots [36..47]
 
-        # [Level 2 REMOVED] Collect edges affected by active events
-        # affected_edges: set[str] = set()
-        # n_events = 0
-        # if self._event_manager:
-        #     for evt in self._event_manager.get_active():
-        #         affected_edges.update(evt.affected_edges)
-        #         n_events += 1
+        # Collect outgoing vehicle counts for pressure computation
+        outgoing_by_edge: dict[str, int] = {}
+        try:
+            node = self._net.getNode(tls_id)
+            for e in node.getOutgoing():
+                eid = e.getID()
+                if not eid.startswith(":"):
+                    try:
+                        outgoing_by_edge[eid] = self._conn.edge.getLastStepVehicleNumber(eid)
+                    except traci.TraCIException:
+                        pass
+        except Exception:
+            pass
+        total_outgoing = sum(outgoing_by_edge.values())
+        n_out_edges = max(len(outgoing_by_edge), 1)
+        avg_outgoing = total_outgoing / n_out_edges
 
         for i, edge_id in enumerate(tls_info.incoming_edges[:MAX_INCOMING_EDGES]):
             try:
@@ -613,28 +673,25 @@ class SumoTrafficEnv(gym.Env):
                 capacity = self._edge_capacity.get(edge_id, 10.0)
                 density = veh_count / capacity
             except traci.TraCIException:
-                q, w, density = 0, 0.0, 0.0
+                q, w, veh_count, density = 0, 0.0, 0, 0.0
             vec[off_q + i] = min(q / 50.0, 1.0)
             vec[off_w + i] = min(w / 300.0, 1.0)
             vec[off_d + i] = min(density, 1.0)
-            # [Level 2 REMOVED] Event flag
-            # vec[off_e + i] = 1.0 if edge_id in affected_edges else 0.0
+            # Pressure: (avg outgoing - incoming) per edge, normalized
+            # Positive = flowing well, negative = congestion building
+            pressure = (avg_outgoing - veh_count) / max(capacity, 1.0)
+            vec[off_p + i] = max(-1.0, min(pressure, 1.0))
 
         # Current phase ratio
         cur_phase = self._current_phases.get(tls_id, 0)
         num_phases = max(tls_info.num_phases, 1)
-        vec[MAX_INCOMING_EDGES * 3] = cur_phase / num_phases
+        vec[MAX_INCOMING_EDGES * 4] = cur_phase / num_phases
 
-        # Elapsed actual green time (per-TLS normalization)
-        green_start = self._green_start_step.get(
-            tls_id, self._phase_start_step.get(tls_id, 0))
-        actual_green_elapsed = self._sim_step - green_start
+        # Countdown remaining (Vietnamese timer display)
+        # 1.0 = full countdown, 0.0 = expired (free to switch)
+        countdown = self._countdown.get(tls_id, 0)
         max_g = self._max_green_steps.get(tls_id, 120)
-        vec[MAX_INCOMING_EDGES * 3 + 1] = min(actual_green_elapsed / max_g, 1.0)
-
-        # Min-green satisfied flag (per-TLS threshold)
-        min_g = self._min_green_steps.get(tls_id, 30)
-        vec[MAX_INCOMING_EDGES * 3 + 2] = 1.0 if actual_green_elapsed >= min_g else 0.0
+        vec[MAX_INCOMING_EDGES * 4 + 1] = min(countdown / max_g, 1.0)
 
         # [Level 2 REMOVED] Number of active events (normalized)
         # vec[MAX_INCOMING_EDGES * 4 + 3] = min(n_events / 5.0, 1.0)

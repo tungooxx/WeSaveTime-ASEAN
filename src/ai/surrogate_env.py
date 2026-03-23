@@ -122,26 +122,22 @@ class SurrogateEnv(gym.Env):
 
             # Feature 36: phase_ratio — deterministic from action
             if action == ACT_OFF:
-                o[MAX_INCOMING_EDGES * 3] = 0.0
+                o[MAX_INCOMING_EDGES * 4] = 0.0
             else:
                 phase_idx = gp[action] if action < len(gp) else gp[0]
-                o[MAX_INCOMING_EDGES * 3] = phase_idx / max(n_phases, 1)
+                o[MAX_INCOMING_EDGES * 4] = phase_idx / max(n_phases, 1)
 
             # Feature 37: elapsed — resets on phase change, otherwise increments
             # NOTE: After per-TLS timing rewrite, the real env normalizes slot 37
             # by per-TLS max_green_steps (varies by intersection size) and slot 38
             # uses per-TLS min_green_steps. Surrogate uses global defaults as an
             # approximation — this is acceptable for fast pre-training only.
-            prev_phase = obs_batch[i][MAX_INCOMING_EDGES * 3]
-            if abs(o[MAX_INCOMING_EDGES * 3] - prev_phase) > 0.01:
-                o[MAX_INCOMING_EDGES * 3 + 1] = 0.0  # phase changed, reset
+            prev_phase = obs_batch[i][MAX_INCOMING_EDGES * 4]
+            if abs(o[MAX_INCOMING_EDGES * 4] - prev_phase) > 0.01:
+                o[MAX_INCOMING_EDGES * 4 + 1] = 0.0  # phase changed, reset
             else:
-                elapsed = obs_batch[i][MAX_INCOMING_EDGES * 3 + 1]
-                o[MAX_INCOMING_EDGES * 3 + 1] = min(elapsed + self.delta_time / 90.0, 1.0)
-
-            # Feature 38: min_green flag (approx: ~25 real seconds = 50 steps)
-            elapsed_val = o[MAX_INCOMING_EDGES * 3 + 1] * 90.0  # denormalize
-            o[MAX_INCOMING_EDGES * 3 + 2] = 1.0 if elapsed_val >= 50 else 0.0
+                elapsed = obs_batch[i][MAX_INCOMING_EDGES * 4 + 1]
+                o[MAX_INCOMING_EDGES * 4 + 1] = min(elapsed + self.delta_time / 90.0, 1.0)
 
             next_obs[tid] = o
 

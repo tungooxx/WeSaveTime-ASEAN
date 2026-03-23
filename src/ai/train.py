@@ -32,7 +32,10 @@ _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from src.ai.traffic_env import SumoTrafficEnv, OBS_DIM, ACT_DIM
+from src.ai.traffic_env import (
+    SumoTrafficEnv, OBS_DIM, L1_OBS_DIM, ACT_DIM,
+    remap_obs_for_old_model,
+)
 from src.ai.dqn_agent import TrafficDQNAgent
 from src.ai.mappo_agent import MAPPOAgent
 
@@ -413,6 +416,7 @@ def train_mappo_with_callbacks(
     save_every: int = 10,
     seed: int = 42,
     gui: bool = False,
+    obs_dim: int = OBS_DIM,  # 51 for Level 2, 39 for Level 1
     on_episode=None,
     on_status=None,
     stop_check=None,
@@ -448,14 +452,25 @@ def train_mappo_with_callbacks(
                 f"W={g.width_m:.0f}m L={g.total_lanes}"
             )
 
+    _status(f"Observation dim: {obs_dim} ({'Level 2 + pressure' if obs_dim > 39 else 'Level 1'})")
+
     agent = MAPPOAgent(
-        obs_dim=OBS_DIM, act_dim=ACT_DIM, hidden=hidden, lr=lr,
+        obs_dim=obs_dim, act_dim=ACT_DIM, hidden=hidden, lr=lr,
         gamma=gamma, gae_lambda=gae_lambda, clip_eps=clip_eps,
         entropy_coef=entropy_coef, value_coef=value_coef,
         ppo_epochs=ppo_epochs, mini_batch_size=mini_batch_size,
     )
     n_params = sum(p.numel() for p in agent.network.parameters())
     _status(f"MAPPO agent ready ({n_params:,} params, device={agent.device})")
+
+    # Observation remapping for Level 1 mode (env outputs 51-dim, agent needs 39-dim)
+    def _remap(o: np.ndarray) -> np.ndarray:
+        if obs_dim < OBS_DIM:
+            return remap_obs_for_old_model(o, obs_dim)
+        return o
+
+    def _remap_dict(obs_dict: dict) -> dict:
+        return {tid: _remap(o) for tid, o in obs_dict.items()}
 
     # Build TLS timing info for log
     tls_timing_lines = []
@@ -474,9 +489,10 @@ def train_mappo_with_callbacks(
         "config": {
             "algorithm": "mappo",
             "net_file": net_file, "episodes": episodes,
-            "num_agents": env.num_agents, "obs_dim": OBS_DIM, "act_dim": ACT_DIM,
+            "num_agents": env.num_agents, "obs_dim": obs_dim, "act_dim": ACT_DIM,
             "lr": lr, "gamma": gamma, "clip_eps": clip_eps,
             "ppo_epochs": ppo_epochs, "entropy_coef": entropy_coef,
+            "level": "L2" if obs_dim > 39 else "L1",
         },
         "tls_timing": tls_timing_lines,
         "episodes": [],
@@ -489,7 +505,8 @@ def train_mappo_with_callbacks(
             break
 
         t0 = time.time()
-        obs, _ = env.reset(seed=seed + ep)
+        raw_obs, _ = env.reset(seed=seed + ep)
+        obs = _remap_dict(raw_obs)
         agent.buffer.clear()
 
         ep_rewards: dict[str, float] = {tid: 0.0 for tid in env.tls_ids}
@@ -512,7 +529,8 @@ def train_mappo_with_callbacks(
                 agent.buffer.add(obs[tid], global_obs, a, lp, 0.0, v,
                                  False, mask)  # reward filled after step
 
-            next_obs, rewards, terminated, truncated, info = env.step(actions)
+            raw_next, rewards, terminated, truncated, info = env.step(actions)
+            next_obs = _remap_dict(raw_next)
             env.record_actions(actions)
 
             # Fill in rewards for the transitions we just stored

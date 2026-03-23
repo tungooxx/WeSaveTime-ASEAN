@@ -35,9 +35,9 @@ _SIM_STEP_LENGTH = 0.5               # seconds per simulation step
 # Tier-based limits
 _TIER_PARAMS = {
     #               veh_min_green_s, max_green_s
-    "small":   (10,  25),
-    "medium":  (15,  45),
-    "large":   (20,  60),
+    "small":   (10,  45),   # max raised: AI can extend for congestion events
+    "medium":  (15,  60),
+    "large":   (20,  90),
 }
 
 
