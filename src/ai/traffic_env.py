@@ -642,10 +642,16 @@ class SumoTrafficEnv(gym.Env):
             if _near_roundabout(tid):
                 continue
 
-            # Only force ISOLATED single-edge, single-phase TLS
-            if (tls_info.num_green_phases <= 1
-                    and len(tls_info.incoming_edges) <= 1
-                    and tid not in clustered):
+            # Force green if: no conflicting phases AND not clustered
+            has_conflict = False
+            for p in tls_info.phases:
+                has_g = any(c in ('G', 'g') for c in p.state)
+                has_r = any(c in ('r', 'R') for c in p.state)
+                if has_g and has_r:
+                    has_conflict = True
+                    break
+
+            if not has_conflict and tid not in clustered:
                 try:
                     state = self._conn.trafficlight.getRedYellowGreenState(tid)
                     self._conn.trafficlight.setRedYellowGreenState(
