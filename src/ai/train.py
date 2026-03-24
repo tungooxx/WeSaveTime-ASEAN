@@ -603,6 +603,272 @@ def train_mappo_with_callbacks(
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Parallel episode worker (for multi-CPU training)
+# ──────────────────────────────────────────────────────────────────────
+
+def _collect_episode_worker(args):
+    """Run one SUMO episode and return collected transitions.
+
+    This runs in a separate process — each gets its own SUMO instance.
+    Returns a dict with transitions and metrics (no torch objects).
+    """
+    (net_file, route_file, sumo_cfg, delta_time, sim_length,
+     seed, obs_dim, worker_id, agent_state_dict, hidden, act_dim) = args
+
+    import torch as _torch
+
+    env = SumoTrafficEnv(
+        net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
+        delta_time=delta_time, sim_length=sim_length, gui=False, seed=seed,
+    )
+
+    # Create local agent copy with shared weights
+    agent = MAPPOAgent(obs_dim=obs_dim, act_dim=act_dim, hidden=hidden)
+    agent.network.load_state_dict(agent_state_dict)
+    agent.network.eval()
+
+    # Remap helper
+    def _remap(o):
+        if obs_dim < OBS_DIM:
+            return remap_obs_for_old_model(o, obs_dim)
+        return o
+
+    raw_obs, _ = env.reset(seed=seed)
+    obs = {tid: _remap(o) for tid, o in raw_obs.items()}
+
+    # Collect transitions
+    transitions = []  # list of (obs, nbr_obs, global_obs, action, log_prob, reward, done, mask)
+    ep_rewards = {tid: 0.0 for tid in env.tls_ids}
+    terminated = truncated = False
+
+    while not (terminated or truncated):
+        all_obs = [obs[tid] for tid in env.tls_ids]
+        global_obs = np.mean(all_obs, axis=0).astype(np.float32)
+        nbr_obs = env.get_neighbor_obs(obs)
+
+        actions = {}
+        step_transitions = []
+        for tid in env.tls_ids:
+            valid = env.get_valid_actions(tid)
+            with _torch.no_grad():
+                a, lp, v = agent.select_action(
+                    obs[tid], global_obs, valid, neighbor_obs=nbr_obs[tid])
+            actions[tid] = a
+            mask = agent.get_valid_mask(valid)
+            step_transitions.append({
+                "obs": obs[tid].copy(),
+                "nbr_obs": nbr_obs[tid].copy(),
+                "global_obs": global_obs.copy(),
+                "action": a, "log_prob": lp, "value": v,
+                "mask": mask.copy(),
+                "tid": tid,
+            })
+
+        raw_next, rewards, terminated, truncated, info = env.step(actions)
+        next_obs = {tid: _remap(o) for tid, o in raw_next.items()}
+
+        for i, tid in enumerate(env.tls_ids):
+            step_transitions[i]["reward"] = rewards[tid]
+            step_transitions[i]["done"] = terminated
+            ep_rewards[tid] += rewards[tid]
+
+        transitions.extend(step_transitions)
+        obs = next_obs
+
+    metrics = env.get_metrics()
+    mean_r = float(np.mean(list(ep_rewards.values())))
+    env.close()
+
+    return {
+        "transitions": transitions,
+        "mean_reward": mean_r,
+        "total_reward": sum(ep_rewards.values()),
+        "metrics": metrics,
+        "worker_id": worker_id,
+        "seed": seed,
+    }
+
+
+def train_mappo_parallel(
+    net_file: str,
+    route_file: str,
+    sumo_cfg: str | None = None,
+    episodes: int = 100,
+    delta_time: int = 10,
+    sim_length: int = 3600,
+    hidden: int = 256,
+    lr: float = 3e-4,
+    gamma: float = 0.99,
+    gae_lambda: float = 0.95,
+    clip_eps: float = 0.2,
+    entropy_coef: float = 0.01,
+    value_coef: float = 0.5,
+    ppo_epochs: int = 10,
+    mini_batch_size: int = 256,
+    save_dir: str = "checkpoints",
+    save_every: int = 10,
+    seed: int = 42,
+    gui: bool = False,
+    obs_dim: int = OBS_DIM,
+    num_workers: int = 4,
+    on_episode=None,
+    on_status=None,
+    stop_check=None,
+) -> tuple[MAPPOAgent, dict]:
+    """MAPPO training with parallel SUMO workers.
+
+    Runs *num_workers* SUMO instances in parallel, each collecting
+    one episode. Combined transitions feed a single PPO update.
+    ~N× faster than sequential training on N CPU cores.
+    """
+    import multiprocessing as mp
+    import torch
+
+    def _status(msg):
+        if on_status:
+            on_status(msg)
+
+    os.makedirs(save_dir, exist_ok=True)
+    log_path = os.path.join(save_dir, "training_log.json")
+
+    # Create env once to get TLS info
+    _status("Initializing environment...")
+    env = SumoTrafficEnv(
+        net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
+        delta_time=delta_time, sim_length=sim_length, gui=False, seed=seed,
+    )
+    tls_ids = list(env.tls_ids)
+    n_agents = len(tls_ids)
+    _status(f"Environment: {n_agents} TLS agents, {num_workers} parallel workers")
+
+    # Print TLS timing
+    for tid in tls_ids:
+        tls_info = env._tls_map.get(tid)
+        g = tls_info.geometry if tls_info else None
+        if g:
+            _status(
+                f"  {tid[:40]:<42s} [{g.tier[:3].upper()}] "
+                f"G={g.min_green_s:.0f}-{g.max_green_s:.0f}s Y={g.yellow_s:.1f}s R={g.allred_s:.1f}s "
+                f"W={g.width_m:.0f}m L={g.total_lanes}"
+            )
+    env.close()
+
+    # Create agent
+    agent = MAPPOAgent(
+        obs_dim=obs_dim, act_dim=ACT_DIM, hidden=hidden, lr=lr,
+        gamma=gamma, gae_lambda=gae_lambda, clip_eps=clip_eps,
+        entropy_coef=entropy_coef, value_coef=value_coef,
+        ppo_epochs=ppo_epochs, mini_batch_size=mini_batch_size,
+    )
+    _status(f"MAPPO agent ready, obs_dim={obs_dim}, act_dim={ACT_DIM}")
+
+    log = {
+        "config": {
+            "algorithm": "mappo_parallel", "episodes": episodes,
+            "num_agents": n_agents, "num_workers": num_workers,
+            "obs_dim": obs_dim, "act_dim": ACT_DIM,
+        },
+        "episodes": [],
+    }
+
+    best_reward = -float("inf")
+    ep_count = 0
+
+    # Resolve absolute paths for workers
+    abs_net = os.path.abspath(net_file)
+    abs_route = os.path.abspath(route_file)
+    abs_cfg = os.path.abspath(sumo_cfg) if sumo_cfg else None
+
+    while ep_count < episodes:
+        if stop_check and stop_check():
+            break
+
+        t0 = time.time()
+        batch_size = min(num_workers, episodes - ep_count)
+
+        # Prepare worker args
+        state_dict = {k: v.cpu() for k, v in agent.network.state_dict().items()}
+        worker_args = []
+        for w in range(batch_size):
+            ep_seed = seed + ep_count + w + 1
+            worker_args.append((
+                abs_net, abs_route, abs_cfg, delta_time, sim_length,
+                ep_seed, obs_dim, w, state_dict, hidden, ACT_DIM,
+            ))
+
+        # Run workers in parallel
+        _status(f"Ep {ep_count+1}-{ep_count+batch_size}/{episodes}: collecting {batch_size} episodes...")
+        with mp.Pool(batch_size) as pool:
+            results = pool.map(_collect_episode_worker, worker_args)
+
+        # Load all transitions into agent buffer
+        agent.buffer.clear()
+        batch_rewards = []
+        batch_metrics = []
+
+        for result in results:
+            for t in result["transitions"]:
+                agent.buffer.add(
+                    t["obs"], t["nbr_obs"], t["global_obs"],
+                    t["action"], t["log_prob"], t["reward"],
+                    t["value"], t["done"], t["mask"],
+                )
+            batch_rewards.append(result["mean_reward"])
+            batch_metrics.append(result["metrics"])
+
+        # PPO update on combined data
+        loss_stats = agent.update()
+
+        elapsed = time.time() - t0
+
+        # Log each episode from this batch
+        for i, result in enumerate(results):
+            ep_count += 1
+            mean_r = result["mean_reward"]
+            metrics = result["metrics"]
+
+            ep_log = {
+                "episode": ep_count, "total_episodes": episodes,
+                "mean_reward": round(mean_r, 4),
+                "total_reward": round(result["total_reward"], 4),
+                "mean_loss": round(loss_stats["total_loss"], 6),
+                "epsilon": 0.0,
+                "steps": len(result["transitions"]) // n_agents,
+                "time_s": round(elapsed / batch_size, 1),
+                "avg_wait": metrics.get("avg_wait_time", 0),
+                "avg_queue": metrics.get("avg_queue_length", 0),
+                "vehicles": metrics.get("total_vehicles", 0),
+                "collisions": 0,
+                "best_reward": round(max(best_reward, mean_r), 4),
+                "algorithm": "mappo_parallel",
+            }
+            log["episodes"].append(ep_log)
+
+            if mean_r > best_reward:
+                best_reward = mean_r
+                agent.save(os.path.join(save_dir, "best_model.pt"))
+
+            if on_episode:
+                on_episode(ep_log)
+
+        # Save periodically
+        if ep_count % save_every < batch_size:
+            agent.save(os.path.join(save_dir, f"model_ep{ep_count}.pt"))
+            with open(log_path, "w") as f:
+                json.dump(log, f, indent=2)
+
+        avg_r = np.mean(batch_rewards)
+        _status(f"Batch done: {batch_size} eps in {elapsed:.0f}s, avg R={avg_r:.3f}")
+
+    agent.save(os.path.join(save_dir, "final_model.pt"))
+    with open(log_path, "w") as f:
+        json.dump(log, f, indent=2)
+
+    _status(f"Parallel MAPPO complete! {ep_count} episodes, best R={best_reward:.4f}")
+    return agent, log
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Dyna-style training (real SUMO + surrogate)
 # ──────────────────────────────────────────────────────────────────────
 

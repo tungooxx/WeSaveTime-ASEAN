@@ -103,8 +103,7 @@ class TrainingThread(threading.Thread):
 
             algorithm = self.params.get("algorithm", "dqn")
             if algorithm == "mappo":
-                from src.ai.train import train_mappo_with_callbacks
-                # MAPPO uses different params than DQN
+                num_workers = self.params.get("num_workers", 1)
                 mappo_kwargs = dict(
                     net_file=self.params["net"],
                     route_file=self.params["route"],
@@ -119,12 +118,18 @@ class TrainingThread(threading.Thread):
                     save_every=self.params["save_every"],
                     seed=self.params["seed"],
                     gui=self.params.get("gui", False),
-                    obs_dim=self.params.get("obs_dim", 51),
+                    obs_dim=self.params.get("obs_dim", 50),
                     on_episode=lambda ep: self.metric_q.put(("episode", ep)),
                     on_status=lambda msg: self.metric_q.put(("status", msg)),
                     stop_check=lambda: self.stop_event.is_set(),
                 )
-                train_mappo_with_callbacks(**mappo_kwargs)
+                if num_workers > 1:
+                    from src.ai.train import train_mappo_parallel
+                    mappo_kwargs["num_workers"] = num_workers
+                    train_mappo_parallel(**mappo_kwargs)
+                else:
+                    from src.ai.train import train_mappo_with_callbacks
+                    train_mappo_with_callbacks(**mappo_kwargs)
             elif self.params.get("dyna", False):
                 from src.ai.train import train_dyna_with_callbacks
                 train_dyna_with_callbacks(**common_kwargs)
@@ -200,7 +205,8 @@ class RLDashboard:
 
         self._params: dict[str, tk.Variable] = {}
         param_defs = [
-            ("episodes",       "Episodes",        100,    int),
+            ("episodes",       "Episodes",        500,    int),
+            ("num_workers",    "CPU Workers",      4,      int),
             ("lr",             "Learning Rate",    0.001,  float),
             ("hidden",         "Hidden Size",      256,    int),
             ("gamma",          "Gamma",            0.99,   float),
@@ -405,9 +411,10 @@ class RLDashboard:
         p["gui"] = self._gui_var.get()
         p["dyna"] = self._dyna_var.get()
         p["algorithm"] = self._algo_var.get()
-        # Level selection: Level 1 = 39-dim obs, Level 2 = 51-dim obs (with pressure)
+        # Level selection
         level = self._level_var.get()
         p["obs_dim"] = 50 if "Level 2" in level else 38
+        p["num_workers"] = p.get("num_workers", 1)
         return p
 
     def _start_training(self):
