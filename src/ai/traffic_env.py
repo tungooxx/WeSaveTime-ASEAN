@@ -569,22 +569,47 @@ class SumoTrafficEnv(gym.Env):
     # ── Yellow helper ─────────────────────────────────────────────────
 
     def _set_trivial_tls_green(self) -> None:
-        """Force all non-AI trivial TLS to permanent green.
+        """Force non-AI trivial TLS to permanent green — ONLY on straight roads.
 
-        Targets two categories:
-        1. Single-phase TLS (pedestrian crossings, median breaks) — only
-           1 green phase, cycling serves no purpose. These are common on
-           arterials like Nguyễn Văn Linh (25+ trivial TLS).
-        2. Uniform-phase TLS (roundabout entries) — all phases have the
-           same pattern (GGG/yyy/rrr), no conflicting directions.
-
-        Multi-phase intersections with 2+ distinct green phases and
-        conflicting directions are left on default programs.
+        Only forces single-phase TLS with 1 incoming edge (pedestrian
+        crossings on a single road). Skips:
+        - TLS near roundabouts (they regulate entry flow)
+        - TLS with 2+ incoming edges (real intersections)
+        - Multi-phase TLS with conflicting directions
         """
+        import math
+
         try:
             all_tls_ids = set(self._conn.trafficlight.getIDList())
         except traci.TraCIException:
             return
+
+        # Find roundabout centers to exclude nearby TLS
+        ra_centers: list[tuple[float, float]] = []
+        for ra in self._net.getRoundabouts():
+            xs, ys = [], []
+            for nid in ra.getNodes():
+                try:
+                    n = self._net.getNode(nid)
+                    x, y = n.getCoord()
+                    xs.append(x); ys.append(y)
+                except Exception:
+                    pass
+            if xs:
+                ra_centers.append((sum(xs) / len(xs), sum(ys) / len(ys)))
+
+        def _near_roundabout(tid: str, radius: float = 300.0) -> bool:
+            if not ra_centers:
+                return False
+            try:
+                node = self._net.getNode(tid)
+                tx, ty = node.getCoord()
+            except Exception:
+                return False
+            for cx, cy in ra_centers:
+                if math.sqrt((tx - cx) ** 2 + (ty - cy) ** 2) < radius:
+                    return True
+            return False
 
         agent_tls = set(self.tls_ids)
         count = 0
@@ -593,26 +618,12 @@ class SumoTrafficEnv(gym.Env):
             if tls_info is None:
                 continue
 
-            # Category 1: Single green phase — always force green
-            if tls_info.num_green_phases <= 1:
-                try:
-                    state = self._conn.trafficlight.getRedYellowGreenState(tid)
-                    self._conn.trafficlight.setRedYellowGreenState(
-                        tid, "G" * len(state))
-                    count += 1
-                except traci.TraCIException:
-                    pass
+            # Skip TLS near roundabouts — let them cycle normally
+            if _near_roundabout(tid):
                 continue
 
-            # Category 2: Multi-phase but all uniform (roundabout entries)
-            is_uniform = True
-            for p in tls_info.phases:
-                has_green = any(c in ('G', 'g') for c in p.state)
-                has_red = any(c in ('r', 'R') for c in p.state)
-                if has_green and has_red:
-                    is_uniform = False
-                    break
-            if is_uniform:
+            # Only force green on single-edge, single-phase TLS (ped crossings)
+            if tls_info.num_green_phases <= 1 and len(tls_info.incoming_edges) <= 1:
                 try:
                     state = self._conn.trafficlight.getRedYellowGreenState(tid)
                     self._conn.trafficlight.setRedYellowGreenState(
