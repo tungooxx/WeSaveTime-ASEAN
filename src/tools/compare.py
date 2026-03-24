@@ -26,6 +26,8 @@ _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+import traci
+
 from src.ai.traffic_env import (
     SumoTrafficEnv, OBS_DIM, OLD_OBS_DIM, ACT_DIM,
     remap_obs_for_old_model,
@@ -36,52 +38,94 @@ from src.ai.mappo_agent import MAPPOAgent
 
 def run_baseline(net_file, route_file, sumo_cfg, sim_length=1800,
                  delta_time=30, seed=1000, episodes=3):
-    """Run the SAME SumoTrafficEnv as the AI but with a 'do nothing' policy.
+    """Run SUMO with its DEFAULT TLS programs (real Da Nang timing).
 
-    Every step, the agent just keeps the current phase (action 0 = first
-    green phase for each TLS). This means the env does the same warm-up,
-    same roundabout handling, same metric collection — only difference is
-    no intelligent phase switching.
+    No RL environment, no AI override. SUMO cycles through all phases
+    using the timing from the .net.xml file (extracted from OSM).
+    Metrics collected on the same TLS incoming edges as the AI env.
     """
-    env = SumoTrafficEnv(
-        net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
-        delta_time=delta_time, sim_length=sim_length, gui=False, seed=seed,
-    )
+    import shutil
+    from src.simulation.tls_metadata import TLSMetadata
+
+    binary = shutil.which("sumo")
+    if not binary:
+        sumo_home = os.environ.get("SUMO_HOME", "")
+        binary = os.path.join(sumo_home, "bin", "sumo") if sumo_home else "sumo"
+
+    # Get TLS incoming edges (same edges the AI env measures)
+    tls_meta = TLSMetadata(net_file)
+    non_trivial = tls_meta.get_non_trivial()
+    tls_edge_ids: list[str] = []
+    seen = set()
+    for info in non_trivial:
+        for eid in info.incoming_edges:
+            if eid not in seen:
+                tls_edge_ids.append(eid)
+                seen.add(eid)
 
     results = []
     for ep in range(1, episodes + 1):
-        t0 = time.time()
-        obs, _ = env.reset(seed=seed + ep)
-        terminated = truncated = False
+        label = f"baseline_{ep}"
+        try:
+            traci.getConnection(label).close()
+        except Exception:
+            pass
 
-        while not (terminated or truncated):
-            # "Do nothing" — keep current phase for every TLS
-            actions = {}
-            for tid in env.tls_ids:
-                # Action 0 = keep first green phase (no switching)
-                green_phases = env._green_phases.get(tid, [0])
-                current = env._current_phases.get(tid, green_phases[0])
-                # Find action index that maps to current phase
-                action = 0
-                for ai, gp in enumerate(green_phases):
-                    if gp == current:
-                        action = ai
-                        break
-                actions[tid] = action
-            obs, rewards, terminated, truncated, _ = env.step(actions)
+        cmd = [binary, "-c", sumo_cfg,
+               "--seed", str(seed + ep),
+               "--no-step-log", "true",
+               "--no-warnings", "true",
+               "--collision.action", "none",
+               "--time-to-teleport", "300"]
+        traci.start(cmd, label=label)
+        conn = traci.getConnection(label)
+
+        wait_samples = []
+        queue_samples = []
+        total_throughput = 0
+        t0 = time.time()
+
+        # Run SUMO with default TLS (no AI override)
+        for step in range(sim_length):
+            conn.simulationStep()
+
+            try:
+                total_throughput += conn.simulation.getArrivedNumber()
+            except Exception:
+                pass
+
+            # Sample every 60 steps on TLS incoming edges
+            if step % 60 == 0 and step > 0:
+                step_wait = 0.0
+                step_queue = 0
+                count = 0
+                for eid in tls_edge_ids:
+                    try:
+                        step_queue += conn.edge.getLastStepHaltingNumber(eid)
+                        step_wait += conn.edge.getWaitingTime(eid)
+                        count += 1
+                    except Exception:
+                        pass
+                n = max(count, 1)
+                wait_samples.append(step_wait / n)
+                queue_samples.append(step_queue / n)
 
         elapsed = time.time() - t0
-        metrics = env.get_metrics()
+        try:
+            final_veh = conn.vehicle.getIDCount()
+        except Exception:
+            final_veh = 0
+        conn.close()
+
         results.append({
             "episode": ep,
-            "avg_wait": metrics.get("avg_wait_time", 0),
-            "avg_queue": metrics.get("avg_queue_length", 0),
-            "throughput": metrics.get("throughput", 0),
-            "vehicles_end": metrics.get("total_vehicles", 0),
+            "avg_wait": round(np.mean(wait_samples) if wait_samples else 0, 1),
+            "avg_queue": round(np.mean(queue_samples) if queue_samples else 0, 1),
+            "throughput": total_throughput,
+            "vehicles_end": final_veh,
             "time_s": round(elapsed, 1),
         })
 
-    env.close()
     return results
 
 
