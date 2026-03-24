@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-03-22 02:06:54.458738 by Eclipse SUMO randomTrips.py v1_26_0+0000-fa7df22d7f1
+<!-- generated on 2026-03-24 14:37:05.031573 by Eclipse SUMO randomTrips.py v1_26_0+0000-fa7df22d7f1
 <configuration>
     <net-file value="D:\WeSaveTime-ASEAN\sumo\danang\danang.net.xml"/>
     <additional-files value="D:\WeSaveTime-ASEAN\sumo\danang\danang.vtypes.xml"/>
@@ -12,59 +12,99 @@
     <random value="True"/>
     <remove-loops value="True"/>
     <end value="600.0"/>
-    <period value="12.0"/>
+    <period value="6.67"/>
 </configuration>
 -->
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
-    <trip id="tk_0" depart="0.00" from="295408452#11" to="828724821#0" type="truck"/>
-    <trip id="tk_1" depart="12.00" from="964171425#2" to="1280219259#1" type="truck"/>
-    <trip id="tk_2" depart="24.00" from="695496042#2" to="295408462#8" type="truck"/>
-    <trip id="tk_3" depart="36.00" from="828724794" to="693885802#2" type="truck"/>
-    <trip id="tk_4" depart="48.00" from="695295267#0" to="828678822#0" type="truck"/>
-    <trip id="tk_5" depart="60.00" from="695025560#1" to="302751282" type="truck"/>
-    <trip id="tk_6" depart="72.00" from="295408464#0" to="302751282" type="truck"/>
-    <trip id="tk_7" depart="84.00" from="1280219260#1" to="-1446429434#0" type="truck"/>
-    <trip id="tk_8" depart="96.00" from="-560329311" to="302739240#3" type="truck"/>
-    <trip id="tk_9" depart="108.00" from="1034028677#1" to="695446625#3" type="truck"/>
-    <trip id="tk_10" depart="120.00" from="695295268" to="39368999#13" type="truck"/>
-    <trip id="tk_11" depart="132.00" from="1255578181" to="295408452#5" type="truck"/>
-    <trip id="tk_12" depart="144.00" from="1280219261" to="118673944#7" type="truck"/>
-    <trip id="tk_13" depart="156.00" from="321069052" to="-300949144#1" type="truck"/>
-    <trip id="tk_14" depart="168.00" from="295408452#16-AddedOffRampEdge" to="295408460#2" type="truck"/>
-    <trip id="tk_15" depart="180.00" from="693416739#0" to="698046188#1" type="truck"/>
-    <trip id="tk_16" depart="192.00" from="-698993299" to="118673921#4" type="truck"/>
-    <trip id="tk_17" depart="204.00" from="39368999#3" to="695504114#0" type="truck"/>
-    <trip id="tk_18" depart="216.00" from="695496039#1" to="695446625#0" type="truck"/>
-    <trip id="tk_19" depart="228.00" from="694715298" to="-695223500" type="truck"/>
-    <trip id="tk_20" depart="240.00" from="295449625#0" to="-372220804#16" type="truck"/>
-    <trip id="tk_21" depart="252.00" from="-321069049#0" to="693416739#3" type="truck"/>
-    <trip id="tk_22" depart="264.00" from="118570149#5" to="-697822848#3" type="truck"/>
-    <trip id="tk_23" depart="276.00" from="1280219257#1" to="693885802#2" type="truck"/>
-    <trip id="tk_24" depart="288.00" from="295408452#0" to="295408460#2" type="truck"/>
-    <trip id="tk_25" depart="300.00" from="295408464#0-AddedOffRampEdge" to="199383481-AddedOnRampEdge" type="truck"/>
-    <trip id="tk_26" depart="312.00" from="35950897#10" to="693885804#2" type="truck"/>
-    <trip id="tk_27" depart="324.00" from="828678805" to="295408452#6" type="truck"/>
-    <trip id="tk_28" depart="336.00" from="695040105#5" to="35950882#9" type="truck"/>
-    <trip id="tk_29" depart="348.00" from="673151142#5" to="1279915921" type="truck"/>
-    <trip id="tk_30" depart="360.00" from="408161670#25" to="35950897#13" type="truck"/>
-    <trip id="tk_31" depart="372.00" from="696169687#1" to="695504114#1" type="truck"/>
-    <trip id="tk_32" depart="384.00" from="910359052#8" to="-118575965" type="truck"/>
-    <trip id="tk_33" depart="396.00" from="295408452#16" to="1426764507#0" type="truck"/>
-    <trip id="tk_34" depart="408.00" from="694830397" to="695025562#0" type="truck"/>
-    <trip id="tk_35" depart="420.00" from="698936203#3" to="694775628#2" type="truck"/>
-    <trip id="tk_36" depart="432.00" from="694775628#0" to="1282340739" type="truck"/>
-    <trip id="tk_37" depart="444.00" from="160628085#2" to="-641077473#1" type="truck"/>
-    <trip id="tk_38" depart="456.00" from="695490086#1" to="695502614" type="truck"/>
-    <trip id="tk_39" depart="468.00" from="-405962811#1" to="118570174#0" type="truck"/>
-    <trip id="tk_40" depart="480.00" from="295408452#5" to="302751295#4" type="truck"/>
-    <trip id="tk_41" depart="492.00" from="406779270" to="1034028676#1" type="truck"/>
-    <trip id="tk_42" depart="504.00" from="561667994#1" to="642396065" type="truck"/>
-    <trip id="tk_43" depart="516.00" from="1210918873#0" to="695025562#0" type="truck"/>
-    <trip id="tk_44" depart="528.00" from="-828724794" to="295408462#1" type="truck"/>
-    <trip id="tk_45" depart="540.00" from="-828678828" to="35950882#14" type="truck"/>
-    <trip id="tk_46" depart="552.00" from="1279915895#1" to="118573597" type="truck"/>
-    <trip id="tk_47" depart="564.00" from="295408468#4" to="-676458410#0" type="truck"/>
-    <trip id="tk_48" depart="576.00" from="295408459#7" to="-1282340713#0" type="truck"/>
-    <trip id="tk_49" depart="588.00" from="695502614" to="-642360965#2" type="truck"/>
+    <trip id="tk_0" depart="0.00" from="300947940" to="118672299#2" type="truck"/>
+    <trip id="tk_1" depart="6.67" from="408161670#22" to="697200467#1" type="truck"/>
+    <trip id="tk_2" depart="13.34" from="828678869#1" to="-828678776" type="truck"/>
+    <trip id="tk_3" depart="20.01" from="694830396" to="295408452#9" type="truck"/>
+    <trip id="tk_4" depart="26.68" from="118674615#3" to="-372466115#1" type="truck"/>
+    <trip id="tk_5" depart="33.35" from="676438752#1" to="910359052#7" type="truck"/>
+    <trip id="tk_6" depart="40.02" from="695490087#1" to="118672612#1" type="truck"/>
+    <trip id="tk_7" depart="46.69" from="295408452#16-AddedOffRampEdge" to="689583171#7" type="truck"/>
+    <trip id="tk_8" depart="53.36" from="1280219257#1" to="694598419#0" type="truck"/>
+    <trip id="tk_9" depart="60.03" from="-704621733#0" to="-372466117#0" type="truck"/>
+    <trip id="tk_10" depart="66.70" from="689583171#4" to="-828724760" type="truck"/>
+    <trip id="tk_11" depart="73.37" from="295408463#1" to="828724748" type="truck"/>
+    <trip id="tk_12" depart="80.04" from="695496042#2" to="295408461#1" type="truck"/>
+    <trip id="tk_13" depart="86.71" from="694598419#1-AddedOnRampEdge" to="693885803#26" type="truck"/>
+    <trip id="tk_14" depart="93.38" from="295408459#5" to="1280089222" type="truck"/>
+    <trip id="tk_15" depart="100.05" from="-118673921#2" to="1418093030" type="truck"/>
+    <trip id="tk_16" depart="106.72" from="295408459#7" to="343237264#1" type="truck"/>
+    <trip id="tk_17" depart="113.39" from="910359052#8" to="408161670#18" type="truck"/>
+    <trip id="tk_18" depart="120.06" from="160628085#0" to="695502614" type="truck"/>
+    <trip id="tk_19" depart="126.73" from="295408459#7" to="698936203#4" type="truck"/>
+    <trip id="tk_20" depart="133.40" from="-35950959#11" to="696169688" type="truck"/>
+    <trip id="tk_21" depart="140.07" from="295408461#4" to="-372467090#1" type="truck"/>
+    <trip id="tk_22" depart="146.74" from="-695446623#0" to="408161670#23" type="truck"/>
+    <trip id="tk_23" depart="153.41" from="697200467#7" to="1280614505#1" type="truck"/>
+    <trip id="tk_24" depart="160.08" from="910359052#9" to="694775628#2" type="truck"/>
+    <trip id="tk_25" depart="166.75" from="673151179#1" to="35950925#3" type="truck"/>
+    <trip id="tk_26" depart="173.42" from="694767769" to="697200467#0" type="truck"/>
+    <trip id="tk_27" depart="180.09" from="408161670#25" to="1210918872#1" type="truck"/>
+    <trip id="tk_28" depart="186.76" from="-118672633#0" to="695502614" type="truck"/>
+    <trip id="tk_29" depart="193.43" from="-118566872#7" to="-828678817#3" type="truck"/>
+    <trip id="tk_30" depart="200.10" from="-673151179#0" to="696169687#1" type="truck"/>
+    <trip id="tk_31" depart="206.77" from="694830395#0" to="693885803#17" type="truck"/>
+    <trip id="tk_32" depart="213.44" from="-828724743" to="302751282-AddedOnRampEdge" type="truck"/>
+    <trip id="tk_33" depart="220.11" from="-1160316964" to="828678779#0" type="truck"/>
+    <trip id="tk_34" depart="226.78" from="-676494208" to="295408461#9" type="truck"/>
+    <trip id="tk_35" depart="233.45" from="695496042#0" to="295408462#12" type="truck"/>
+    <trip id="tk_36" depart="240.12" from="693416739#0" to="-895497201" type="truck"/>
+    <trip id="tk_37" depart="246.79" from="295408452#16-AddedOffRampEdge" to="295408461#4" type="truck"/>
+    <trip id="tk_38" depart="253.46" from="1280089201#0" to="295394152#1" type="truck"/>
+    <trip id="tk_39" depart="260.13" from="1426764507#0" to="118673944#8" type="truck"/>
+    <trip id="tk_40" depart="266.80" from="695025562#0" to="1418093030" type="truck"/>
+    <trip id="tk_41" depart="273.47" from="295408452#6" to="-560329300" type="truck"/>
+    <trip id="tk_42" depart="280.14" from="828724790#1" to="695502611#1" type="truck"/>
+    <trip id="tk_43" depart="286.81" from="-35950868#15" to="-676453139#0" type="truck"/>
+    <trip id="tk_44" depart="293.48" from="694601892" to="35950897#0" type="truck"/>
+    <trip id="tk_45" depart="300.15" from="-828678774" to="118570175" type="truck"/>
+    <trip id="tk_46" depart="306.82" from="35950868#30" to="1280219260#0" type="truck"/>
+    <trip id="tk_47" depart="313.49" from="673151142#4" to="295408460#2" type="truck"/>
+    <trip id="tk_48" depart="320.16" from="1280089201#0" to="-828678872" type="truck"/>
+    <trip id="tk_49" depart="326.83" from="-696715602" to="295408468#4" type="truck"/>
+    <trip id="tk_50" depart="333.50" from="693330103#2" to="-118575972#2" type="truck"/>
+    <trip id="tk_51" depart="340.17" from="1280219257#1" to="694598419#1" type="truck"/>
+    <trip id="tk_52" depart="346.84" from="118566872#0" to="295449627#2" type="truck"/>
+    <trip id="tk_53" depart="353.51" from="372464937#0" to="-642360965#0" type="truck"/>
+    <trip id="tk_54" depart="360.18" from="39368999#17" to="295128790#0" type="truck"/>
+    <trip id="tk_55" depart="366.85" from="295408462#8" to="695490086#1" type="truck"/>
+    <trip id="tk_56" depart="373.52" from="1426764507#0" to="642353277" type="truck"/>
+    <trip id="tk_57" depart="380.19" from="828678770" to="408161670#20" type="truck"/>
+    <trip id="tk_58" depart="386.86" from="-35950864#7" to="828678769#0" type="truck"/>
+    <trip id="tk_59" depart="393.53" from="-118575965" to="295408470#2" type="truck"/>
+    <trip id="tk_60" depart="400.20" from="118672444#4" to="828724711#0" type="truck"/>
+    <trip id="tk_61" depart="406.87" from="828678874#2" to="118570168#9" type="truck"/>
+    <trip id="tk_62" depart="413.54" from="-642360965#2" to="695496039#3" type="truck"/>
+    <trip id="tk_63" depart="420.21" from="160628085#2" to="828678742" type="truck"/>
+    <trip id="tk_64" depart="426.88" from="-302751287" to="295394152#1" type="truck"/>
+    <trip id="tk_65" depart="433.55" from="695496039#3" to="695033474#1" type="truck"/>
+    <trip id="tk_66" depart="440.22" from="1034028675#2" to="-405113893#0" type="truck"/>
+    <trip id="tk_67" depart="446.89" from="372464927" to="-828678860#0" type="truck"/>
+    <trip id="tk_68" depart="453.56" from="1280089222" to="1282340716" type="truck"/>
+    <trip id="tk_69" depart="460.23" from="641077471" to="-643237806#1" type="truck"/>
+    <trip id="tk_70" depart="466.90" from="641074760#0" to="-828724728" type="truck"/>
+    <trip id="tk_71" depart="473.57" from="695510007#1" to="1124338482" type="truck"/>
+    <trip id="tk_72" depart="480.24" from="35950897#6" to="-895487327" type="truck"/>
+    <trip id="tk_73" depart="486.91" from="694598419#0" to="693885804#2" type="truck"/>
+    <trip id="tk_74" depart="493.58" from="35950897#0" to="-118673944#8" type="truck"/>
+    <trip id="tk_75" depart="500.25" from="-828678817#5" to="696169688" type="truck"/>
+    <trip id="tk_76" depart="506.92" from="-321069035#5" to="39368999#17" type="truck"/>
+    <trip id="tk_77" depart="513.59" from="-828678910" to="694598419#0" type="truck"/>
+    <trip id="tk_78" depart="520.26" from="693885802#0" to="295408462#10" type="truck"/>
+    <trip id="tk_79" depart="526.93" from="302751284#0" to="1160316964" type="truck"/>
+    <trip id="tk_80" depart="533.60" from="828724751" to="-35950864#5" type="truck"/>
+    <trip id="tk_81" depart="540.27" from="676509076#0" to="295408468#6" type="truck"/>
+    <trip id="tk_82" depart="546.94" from="689583171#4" to="828724748" type="truck"/>
+    <trip id="tk_83" depart="553.61" from="1210918873#0" to="828678837#1" type="truck"/>
+    <trip id="tk_84" depart="560.28" from="-118672634" to="408161670#18" type="truck"/>
+    <trip id="tk_85" depart="566.95" from="693885804#0" to="695496039#0" type="truck"/>
+    <trip id="tk_86" depart="573.62" from="695040105#5" to="828678804" type="truck"/>
+    <trip id="tk_87" depart="580.29" from="1280219265" to="695025562#1" type="truck"/>
+    <trip id="tk_88" depart="586.96" from="694583900#0" to="295408465#2" type="truck"/>
+    <trip id="tk_89" depart="593.63" from="-828724710" to="118570151#2" type="truck"/>
 </routes>

@@ -348,20 +348,20 @@ def generate_demand():
     randomTrips = find_tool("randomTrips.py")
     duarouter = find_tool("duarouter")
 
-    # Hai Chau District: ~1,655 vehicles for 900s training scenario
+    # Hai Chau District: ~3,000 vehicles for 900s training scenario
     # ~68% motorbike, ~20% car, ~6% bus, ~6% truck
     trip_files = []
 
     vehicle_configs = [
         # (prefix, vtype, count, fringe_factor)
-        ("ma_", "motorbike",    750, 1),   # main motorbike wave
-        ("mx_", "motorbike2",   380, 2),   # secondary motorbike wave
-        ("ca_", "car",          200, 5),   # sedans
-        ("sv_", "car_suv",       80, 5),   # SUVs
-        ("tx_", "taxi",          80, 5),   # taxis (Grab/Mai Linh)
-        ("bs_", "bus",           65, 10),  # city buses
-        ("tk_", "truck",         50, 9),   # heavy trucks
-        ("dv_", "delivery",      50, 5),   # delivery vans
+        ("ma_", "motorbike",   1350, 1),   # main motorbike wave
+        ("mx_", "motorbike2",   690, 2),   # secondary motorbike wave
+        ("ca_", "car",          360, 5),   # sedans
+        ("sv_", "car_suv",      150, 5),   # SUVs
+        ("tx_", "taxi",         150, 5),   # taxis (Grab/Mai Linh)
+        ("bs_", "bus",          120, 10),  # city buses
+        ("tk_", "truck",         90, 9),   # heavy trucks
+        ("dv_", "delivery",      90, 5),   # delivery vans
     ]
 
     for prefix, vtype, count, fringe in vehicle_configs:
