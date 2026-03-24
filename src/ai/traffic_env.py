@@ -569,13 +569,13 @@ class SumoTrafficEnv(gym.Env):
     # ── Yellow helper ─────────────────────────────────────────────────
 
     def _set_trivial_tls_green(self) -> None:
-        """Force non-AI trivial TLS to permanent green — ONLY on straight roads.
+        """Force ISOLATED non-AI trivial TLS to permanent green.
 
-        Only forces single-phase TLS with 1 incoming edge (pedestrian
-        crossings on a single road). Skips:
-        - TLS near roundabouts (they regulate entry flow)
+        Only forces single-phase, single-edge TLS (pedestrian crossings)
+        that are NOT clustered near other TLS. Skips:
+        - TLS near roundabouts (regulate entry flow)
+        - TLS clustered with 2+ other TLS within 30m (real junction)
         - TLS with 2+ incoming edges (real intersections)
-        - Multi-phase TLS with conflicting directions
         """
         import math
 
@@ -584,7 +584,7 @@ class SumoTrafficEnv(gym.Env):
         except traci.TraCIException:
             return
 
-        # Find roundabout centers to exclude nearby TLS
+        # Find roundabout centers
         ra_centers: list[tuple[float, float]] = []
         for ra in self._net.getRoundabouts():
             xs, ys = [], []
@@ -611,19 +611,41 @@ class SumoTrafficEnv(gym.Env):
                     return True
             return False
 
+        # Get coords of all non-AI trivial TLS
         agent_tls = set(self.tls_ids)
+        trivial_coords: dict[str, tuple[float, float]] = {}
+        for tid in all_tls_ids - agent_tls:
+            tls_info = self._tls_meta.get(tid)
+            if tls_info and tls_info.num_green_phases <= 1 and len(tls_info.incoming_edges) <= 1:
+                try:
+                    node = self._net.getNode(tid)
+                    trivial_coords[tid] = node.getCoord()
+                except Exception:
+                    pass
+
+        # Find clustered TLS (2+ other trivial TLS within 30m = real junction)
+        clustered: set[str] = set()
+        for t1, (x1, y1) in trivial_coords.items():
+            nearby = sum(
+                1 for t2, (x2, y2) in trivial_coords.items()
+                if t1 != t2 and math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2) < 30
+            )
+            if nearby >= 2:
+                clustered.add(t1)
+
         count = 0
         for tid in all_tls_ids - agent_tls:
             tls_info = self._tls_meta.get(tid)
             if tls_info is None:
                 continue
 
-            # Skip TLS near roundabouts — let them cycle normally
             if _near_roundabout(tid):
                 continue
 
-            # Only force green on single-edge, single-phase TLS (ped crossings)
-            if tls_info.num_green_phases <= 1 and len(tls_info.incoming_edges) <= 1:
+            # Only force ISOLATED single-edge, single-phase TLS
+            if (tls_info.num_green_phases <= 1
+                    and len(tls_info.incoming_edges) <= 1
+                    and tid not in clustered):
                 try:
                     state = self._conn.trafficlight.getRedYellowGreenState(tid)
                     self._conn.trafficlight.setRedYellowGreenState(
