@@ -30,19 +30,24 @@ from torch.distributions import Categorical
 # ──────────────────────────────────────────────────────────────────────
 
 class ActorCritic(nn.Module):
-    """Shared actor-critic with centralized critic."""
+    """Shared actor-critic with neighbor-aware actor and centralized critic.
+
+    Actor input: [local_obs, neighbor_mean_obs] = obs_dim * 2
+    Critic input: [local_obs, global_mean_obs] = obs_dim * 2
+    """
 
     def __init__(self, obs_dim: int, act_dim: int, hidden: int = 256) -> None:
         super().__init__()
-        # Actor: local obs -> action logits
+        # Actor: [local obs + neighbor obs] -> action logits
+        # Neighbor obs = mean of adjacent TLS observations (coordination)
         self.actor = nn.Sequential(
-            nn.Linear(obs_dim, hidden),
+            nn.Linear(obs_dim * 2, hidden),
             nn.ReLU(),
             nn.Linear(hidden, hidden),
             nn.ReLU(),
             nn.Linear(hidden, act_dim),
         )
-        # Critic: local obs + global obs -> value
+        # Critic: [local obs + global obs] -> value
         self.critic = nn.Sequential(
             nn.Linear(obs_dim * 2, hidden),
             nn.ReLU(),
@@ -52,8 +57,14 @@ class ActorCritic(nn.Module):
         )
 
     def forward_actor(self, obs: torch.Tensor,
+                      neighbor_obs: Optional[torch.Tensor] = None,
                       valid_mask: Optional[torch.Tensor] = None) -> Categorical:
-        logits = self.actor(obs)
+        if neighbor_obs is not None:
+            x = torch.cat([obs, neighbor_obs], dim=-1)
+        else:
+            # No neighbor info — pad with zeros
+            x = torch.cat([obs, torch.zeros_like(obs)], dim=-1)
+        logits = self.actor(x)
         if valid_mask is not None:
             logits = logits.masked_fill(~valid_mask, -1e8)
         return Categorical(logits=logits)
@@ -73,6 +84,7 @@ class RolloutBuffer:
 
     def __init__(self) -> None:
         self.obs: list[np.ndarray] = []
+        self.neighbor_obs: list[np.ndarray] = []
         self.global_obs: list[np.ndarray] = []
         self.actions: list[int] = []
         self.log_probs: list[float] = []
@@ -81,10 +93,12 @@ class RolloutBuffer:
         self.dones: list[bool] = []
         self.valid_masks: list[np.ndarray] = []
 
-    def add(self, obs: np.ndarray, global_obs: np.ndarray, action: int,
+    def add(self, obs: np.ndarray, neighbor_obs: np.ndarray,
+            global_obs: np.ndarray, action: int,
             log_prob: float, reward: float, value: float, done: bool,
             valid_mask: np.ndarray) -> None:
         self.obs.append(obs)
+        self.neighbor_obs.append(neighbor_obs)
         self.global_obs.append(global_obs)
         self.actions.append(action)
         self.log_probs.append(log_prob)
@@ -151,6 +165,7 @@ class RolloutBuffer:
             idx = indices[start:start + batch_size]
             yield {
                 "obs": np.array([self.obs[i] for i in idx], dtype=np.float32),
+                "neighbor_obs": np.array([self.neighbor_obs[i] for i in idx], dtype=np.float32),
                 "global_obs": np.array([self.global_obs[i] for i in idx], dtype=np.float32),
                 "actions": np.array([self.actions[i] for i in idx], dtype=np.int64),
                 "old_log_probs": np.array([self.log_probs[i] for i in idx], dtype=np.float32),
@@ -161,6 +176,7 @@ class RolloutBuffer:
 
     def clear(self) -> None:
         self.obs.clear()
+        self.neighbor_obs.clear()
         self.global_obs.clear()
         self.actions.clear()
         self.log_probs.clear()
@@ -221,11 +237,15 @@ class MAPPOAgent:
         global_obs: np.ndarray,
         valid_actions: Optional[list[int]] = None,
         greedy: bool = False,
+        neighbor_obs: Optional[np.ndarray] = None,
     ) -> tuple[int, float, float]:
         """Select action, return (action, log_prob, value)."""
         with torch.no_grad():
             obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
             global_t = torch.FloatTensor(global_obs).unsqueeze(0).to(self.device)
+            nbr_t = None
+            if neighbor_obs is not None:
+                nbr_t = torch.FloatTensor(neighbor_obs).unsqueeze(0).to(self.device)
 
             # Build valid mask
             mask = None
@@ -234,7 +254,7 @@ class MAPPOAgent:
                 for a in valid_actions:
                     mask[0, a] = True
 
-            dist = self.network.forward_actor(obs_t, mask)
+            dist = self.network.forward_actor(obs_t, nbr_t, mask)
             value = self.network.forward_critic(obs_t, global_t)
 
             if greedy:
@@ -278,6 +298,7 @@ class MAPPOAgent:
         for _ in range(self.ppo_epochs):
             for batch in self.buffer.get_batches(self.mini_batch_size, advantages, returns):
                 obs_t = torch.FloatTensor(batch["obs"]).to(self.device)
+                nbr_t = torch.FloatTensor(batch["neighbor_obs"]).to(self.device)
                 global_t = torch.FloatTensor(batch["global_obs"]).to(self.device)
                 actions_t = torch.LongTensor(batch["actions"]).to(self.device)
                 old_lp_t = torch.FloatTensor(batch["old_log_probs"]).to(self.device)
@@ -286,7 +307,7 @@ class MAPPOAgent:
                 mask_t = torch.BoolTensor(batch["valid_masks"]).to(self.device)
 
                 # Recompute
-                dist = self.network.forward_actor(obs_t, mask_t)
+                dist = self.network.forward_actor(obs_t, nbr_t, mask_t)
                 new_lp = dist.log_prob(actions_t)
                 entropy = dist.entropy().mean()
                 values = self.network.forward_critic(obs_t, global_t)

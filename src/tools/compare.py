@@ -164,11 +164,14 @@ def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
                 global_obs = np.mean(
                     [obs[tid] for tid in env.tls_ids], axis=0
                 ).astype(np.float32)
+                nbr_obs = env.get_neighbor_obs(obs)
             for tid in env.tls_ids:
                 valid = env.get_valid_actions(tid)
                 o = remap_obs_for_old_model(obs[tid]) if needs_remap else obs[tid]
                 if algorithm == "mappo":
-                    a, _, _ = agent.select_action(o, global_obs, valid, greedy=True)
+                    nbr = nbr_obs[tid] if not needs_remap else None
+                    a, _, _ = agent.select_action(
+                        o, global_obs, valid, greedy=True, neighbor_obs=nbr)
                 else:
                     a = agent.select_action(o, valid, greedy=True)
                 actions[tid] = a

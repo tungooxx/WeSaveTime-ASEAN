@@ -96,11 +96,32 @@ Phase 7 (Demand Splits)      → baseline improvement
 ## Implementation Status
 
 ### Phase 1: Pressure State — IMPLEMENTED
-- OBS_DIM: 39 → 51 (added 12 pressure slots at [36..47])
+- OBS_DIM: 38 → 50 (added 12 pressure slots at [36..47])
 - Pressure per edge = (avg_outgoing - incoming) / capacity, normalized [-1, 1]
 - Vietnamese countdown timer (committed green durations)
 - rl_dashboard: Level 1 / Level 2 training selector
-- Level 1 training uses 39-dim obs (auto-remap strips pressure)
-- Level 2 training uses 51-dim obs (full PressLight state)
-- Visualizer shows G/Y/R/C timing per TLS
+- Level 1 training uses 38-dim obs (auto-remap strips pressure)
+- Level 2 training uses 50-dim obs (full PressLight state)
 - Level 1 results saved to `checkpoints/history/level1_comparison.json`
+
+### Phase 2: Variable Green Duration — IMPLEMENTED
+- ACT_DIM: 7 → 21 (7 phases × 3 duration levels)
+- Duration levels: SHORT (ped minimum), MEDIUM (midpoint), LONG (max green)
+- AI chooses both WHICH phase and HOW LONG
+- Vietnamese countdown timer shows committed duration
+- Max green extended: small=45s, medium=60s, large=90s
+- Visualizer shows duration label: G=45s(LONG), G=22s(SHORT)
+
+### Phase 4: Neighbor Coordination — IMPLEMENTED
+- Distance-based neighbor graph (500m radius, max 4 neighbors)
+- Mean neighbor observation passed to MAPPO actor
+- Actor input: [own_obs(50), neighbor_mean_obs(50)] = 100 dimensions
+- Critic unchanged: [own_obs, global_mean_obs] = 100 dimensions
+- 6/10 TLS have neighbors, 4 isolated (too far from other non-trivial TLS)
+- Enables green wave coordination along corridors
+- Training, compare, and visualize all updated for neighbor obs
+
+### Baseline: Real SUMO Default Timing
+- Baseline now uses SUMO's auto-generated TLS programs from netconvert
+- No AI override — raw SUMO default cycling
+- Real comparison target (not fake "do nothing" policy)

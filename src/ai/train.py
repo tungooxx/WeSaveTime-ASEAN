@@ -518,16 +518,22 @@ def train_mappo_with_callbacks(
             all_obs = [obs[tid] for tid in env.tls_ids]
             global_obs = np.mean(all_obs, axis=0).astype(np.float32)
 
+            # Neighbor observations (coordination signal)
+            raw_obs_for_nbr = {tid: obs[tid] for tid in env.tls_ids}
+            nbr_obs = env.get_neighbor_obs(raw_obs_for_nbr)
+
             actions = {}
             for tid in env.tls_ids:
                 valid = env.get_valid_actions(tid)
-                a, lp, v = agent.select_action(obs[tid], global_obs, valid)
+                a, lp, v = agent.select_action(
+                    obs[tid], global_obs, valid,
+                    neighbor_obs=nbr_obs[tid])
                 actions[tid] = a
 
                 # Store transition
                 mask = agent.get_valid_mask(valid)
-                agent.buffer.add(obs[tid], global_obs, a, lp, 0.0, v,
-                                 False, mask)  # reward filled after step
+                agent.buffer.add(obs[tid], nbr_obs[tid], global_obs,
+                                 a, lp, 0.0, v, False, mask)
 
             raw_next, rewards, terminated, truncated, info = env.step(actions)
             next_obs = _remap_dict(raw_next)

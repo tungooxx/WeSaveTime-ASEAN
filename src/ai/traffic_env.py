@@ -182,6 +182,11 @@ class SumoTrafficEnv(gym.Env):
         ]
         self._avg_transition = sum(transitions) / max(len(transitions), 1)
 
+        # ── Neighbor graph (for coordination) ──────────────────────
+        self._neighbor_graph = self._tls_meta.get_neighbor_graph(
+            self.tls_ids, radius=500.0, max_neighbors=4,
+        )
+
         # [TLS CANDIDATE COMMENTED OUT] ── Candidate TLS tracking ──
         # self.candidate_tls_ids: set[str] = set()
         # self.existing_tls_ids: set[str] = set()
@@ -625,6 +630,25 @@ class SumoTrafficEnv(gym.Env):
 
     def _get_observations(self) -> dict[str, np.ndarray]:
         return {tls_id: self._obs_for(tls_id) for tls_id in self.tls_ids}
+
+    def get_neighbor_obs(self, obs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+        """Compute mean neighbor observation for each TLS.
+
+        Returns a dict of (OBS_DIM,) arrays. If a TLS has no neighbors,
+        returns zeros (the agent must rely on its own observation only).
+        """
+        neighbor_obs: dict[str, np.ndarray] = {}
+        for tid in self.tls_ids:
+            nbrs = self._neighbor_graph.get(tid, [])
+            if nbrs:
+                nbr_vecs = [obs[n] for n in nbrs if n in obs]
+                if nbr_vecs:
+                    neighbor_obs[tid] = np.mean(nbr_vecs, axis=0).astype(np.float32)
+                else:
+                    neighbor_obs[tid] = np.zeros(OBS_DIM, dtype=np.float32)
+            else:
+                neighbor_obs[tid] = np.zeros(OBS_DIM, dtype=np.float32)
+        return neighbor_obs
 
     def _obs_for(self, tls_id: str) -> np.ndarray:
         """Build a fixed-size (OBS_DIM,) observation vector for one TLS.

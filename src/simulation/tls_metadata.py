@@ -348,6 +348,42 @@ class TLSMetadata:
             and not _near_roundabout(info.id)
         ]
 
+    def get_neighbor_graph(
+        self,
+        tls_ids: list[str],
+        radius: float = 500.0,
+        max_neighbors: int = 4,
+    ) -> dict[str, list[str]]:
+        """Build neighbor graph for the given TLS by distance.
+
+        Two TLS are neighbors if they are within *radius* meters.
+        Returns at most *max_neighbors* per TLS (closest first).
+        """
+        coords: dict[str, tuple[float, float]] = {}
+        for tid in tls_ids:
+            try:
+                node = self._net.getNode(tid)
+                coords[tid] = node.getCoord()
+            except Exception:
+                pass
+
+        graph: dict[str, list[str]] = {tid: [] for tid in tls_ids}
+        for tid in tls_ids:
+            if tid not in coords:
+                continue
+            x1, y1 = coords[tid]
+            dists = []
+            for other in tls_ids:
+                if other == tid or other not in coords:
+                    continue
+                x2, y2 = coords[other]
+                d = math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+                if d <= radius:
+                    dists.append((d, other))
+            dists.sort()
+            graph[tid] = [other for _, other in dists[:max_neighbors]]
+        return graph
+
     def get_tls_ids(self) -> list[str]:
         return list(self._tls_map.keys())
 
