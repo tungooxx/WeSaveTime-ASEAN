@@ -108,11 +108,9 @@ class SumoTrafficEnv(gym.Env):
         self.allred_time = allred_time
         # [Level 1] Pure timing optimization
 
-        # ── TLS discovery ────────────────────────────────────────────
+        # ── TLS discovery (ALL TLS are AI-controlled) ──────────────
         self._tls_meta = TLSMetadata(self.net_file)
-        self._tls_list = self._tls_meta.get_non_trivial(
-            min_green_phases, min_incoming
-        )
+        self._tls_list = self._tls_meta.all_tls
         self.tls_ids: list[str] = [t.id for t in self._tls_list]
         self._tls_map = {t.id: t for t in self._tls_list}
 
@@ -362,9 +360,7 @@ class SumoTrafficEnv(gym.Env):
         for _ in range(self.delta_time):
             self._sim_step_and_track()
 
-        # Force roundabout-entry TLS (trivial, not AI-controlled) to permanent
-        # green so they don't randomly block traffic with their default programs
-        self._set_trivial_tls_green()
+        # All TLS are AI-controlled — no forced green needed
 
         obs = self._get_observations()
         return obs, {"step": self._sim_step, "sim_time": self._sim_step}
