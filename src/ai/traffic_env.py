@@ -229,6 +229,7 @@ class SumoTrafficEnv(gym.Env):
         self._phase_start_step: dict[str, int] = {}
         self._green_start_step: dict[str, int] = {}  # when actual green began
         self._countdown: dict[str, int] = {}  # Vietnamese countdown timer (sim steps remaining)
+        self._committed_green: dict[str, int] = {}  # initial countdown when phase changed (for logging)
 
     # ── Properties ────────────────────────────────────────────────────
 
@@ -360,6 +361,7 @@ class SumoTrafficEnv(gym.Env):
         self._phase_start_step.clear()
         self._green_start_step.clear()
         self._countdown.clear()
+        self._committed_green.clear()
 
         # Initialise per-TLS tracking and validate green phases at runtime
         for tls_id in self.tls_ids:
@@ -467,7 +469,9 @@ class SumoTrafficEnv(gym.Env):
                 "yellow_rem": yw, "allred_rem": ar, "done": False,
             }
             # Set countdown = AI's chosen duration (SHORT/MEDIUM/LONG)
-            self._countdown[tls_id] = chosen_duration.get(tls_id, self._min_green_steps.get(tls_id, 30))
+            dur = chosen_duration.get(tls_id, self._min_green_steps.get(tls_id, 30))
+            self._countdown[tls_id] = dur
+            self._committed_green[tls_id] = dur  # snapshot for logging
 
         # ── 3. Tick-by-tick transition (per-TLS yellow → allred → green)
         max_transition = max(

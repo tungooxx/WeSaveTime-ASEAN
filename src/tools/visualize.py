@@ -546,14 +546,14 @@ class Visualizer:
                         yw = g.yellow_s if g else 3.0
                         ar = g.allred_s if g else 2.0
                         tier = g.tier[:3].upper() if g else "???"
-                        # Green = AI's committed countdown (real seconds)
-                        cd = env._countdown.get(tid, 0)
-                        gr = cd * 0.5 if cd > 0 else (g.min_green_s if g else 15.0)
-                        # Duration label
+                        # Green = AI's committed duration (snapshot at switch time)
+                        committed = env._committed_green.get(tid, 0)
+                        gr = committed * 0.5 if committed > 0 else (g.min_green_s if g else 15.0)
+                        # Duration label from committed value
                         levels = env._duration_levels.get(tid, [30, 60, 90])
-                        if cd >= levels[-1]:
+                        if committed >= levels[-1]:
                             dur_label = "LONG"
-                        elif cd >= levels[1]:
+                        elif committed >= levels[1]:
                             dur_label = "MED"
                         else:
                             dur_label = "SHORT"
