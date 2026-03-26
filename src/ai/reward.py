@@ -23,9 +23,10 @@ def compute_tls_reward(
     phase_changed: bool = False,
     transition_cost: float = 1.0,
     max_queue_cap: float = 50.0,
-    # Baseline targets (from comparison runs)
+    # Baseline targets (from comparison runs, Phase 3 only)
     baseline_wait: float = 25.0,    # baseline avg wait per TLS
     baseline_queue: float = 0.9,    # baseline avg queue per TLS
+    baseline_active: bool = True,   # False during curriculum Phase 1-2
     w_wait: float = 0.20,
     w_queue: float = 0.10,
     w_fairness: float = 0.05,
@@ -69,13 +70,17 @@ def compute_tls_reward(
     switch_term = -w_switch * transition_cost if phase_changed else 0.0
 
     # 7. Baseline bonus: POSITIVE when beating baseline, NEGATIVE when worse
-    #    wait bonus: +1 when wait=0, 0 when wait=baseline, -1 when wait=2*baseline
-    #    queue bonus: same logic
-    bl_wait = max(baseline_wait, 1.0)
-    bl_queue = max(baseline_queue, 0.1)
-    wait_bonus = float(np.clip((bl_wait - new_waiting) / bl_wait, -1.0, 1.0))
-    queue_bonus = float(np.clip((bl_queue - avg_q) / bl_queue, -1.0, 1.0))
-    baseline_term = w_baseline * (0.7 * wait_bonus + 0.3 * queue_bonus)
+    #    Only active during full-traffic Phase 3 (curriculum learning).
+    #    During Phase 1-2, the bonus is disabled so the AI doesn't get
+    #    free positive rewards from low traffic.
+    if baseline_active:
+        bl_wait = max(baseline_wait, 1.0)
+        bl_queue = max(baseline_queue, 0.1)
+        wait_bonus = float(np.clip((bl_wait - new_waiting) / bl_wait, -1.0, 1.0))
+        queue_bonus = float(np.clip((bl_queue - avg_q) / bl_queue, -1.0, 1.0))
+        baseline_term = w_baseline * (0.7 * wait_bonus + 0.3 * queue_bonus)
+    else:
+        baseline_term = 0.0
 
     return float(wait_term + queue_term + fairness_term
                  + throughput_term + pressure_term + switch_term

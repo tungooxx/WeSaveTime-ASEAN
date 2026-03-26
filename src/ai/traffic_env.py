@@ -265,6 +265,7 @@ class SumoTrafficEnv(gym.Env):
         # self.event_probability = event_probability
         # self._event_manager = None
         self._active_event_log: list[str] = []
+        self.baseline_active: bool = True  # set False during curriculum Phase 1-2
         #
         # # Build list of non-internal edges for random event placement
         # self._all_edges: list[str] = [
@@ -818,6 +819,7 @@ class SumoTrafficEnv(gym.Env):
                 pressure=pressure,
                 phase_changed=(tls_id in changed_tls_set) if changed_tls_set else False,
                 transition_cost=tc,
+                baseline_active=self.baseline_active,
             )
 
             # Apply importance weighting

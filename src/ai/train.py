@@ -596,7 +596,7 @@ def _collect_episode_worker(args):
     """
     (net_file, route_file, sumo_cfg, delta_time, sim_length,
      seed, obs_dim, worker_id, agent_state_dict, hidden, act_dim,
-     action_mode, num_duration_levels) = args
+     action_mode, num_duration_levels, baseline_active) = args
 
     import torch as _torch
 
@@ -605,6 +605,7 @@ def _collect_episode_worker(args):
         delta_time=delta_time, sim_length=sim_length, gui=False, seed=seed,
         action_mode=action_mode, num_duration_levels=num_duration_levels,
     )
+    env.baseline_active = baseline_active
 
     # Create local agent copy with shared weights
     agent = MAPPOAgent(obs_dim=obs_dim, act_dim=act_dim, hidden=hidden,
@@ -827,6 +828,9 @@ def train_mappo_parallel(
                     _status(f"  >> Curriculum: {tag} ({frac:.0%} traffic)")
                 break
 
+        # Baseline bonus only active during full-traffic phase
+        is_full_traffic = (active_route == abs_route)
+
         # Prepare worker args
         state_dict = {k: v.cpu() for k, v in agent.network.state_dict().items()}
         worker_args = []
@@ -835,7 +839,7 @@ def train_mappo_parallel(
             worker_args.append((
                 abs_net, active_route, abs_cfg, delta_time, sim_length,
                 ep_seed, OBS_DIM, w, state_dict, hidden, act_dim,
-                action_mode, num_duration_levels,
+                action_mode, num_duration_levels, is_full_traffic,
             ))
 
         # Run workers in parallel
