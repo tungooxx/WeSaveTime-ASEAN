@@ -819,7 +819,9 @@ class SumoTrafficEnv(gym.Env):
                 pressure=pressure,
                 phase_changed=(tls_id in changed_tls_set) if changed_tls_set else False,
                 transition_cost=tc,
-                baseline_active=self.baseline_active,
+                # Baseline bonus only for multi-phase TLS (real intersections)
+                # Single-phase ped crossings always have low wait — bonus is meaningless
+                baseline_active=(self.baseline_active and tls_info.num_green_phases >= 2),
             )
 
             # Apply importance weighting
