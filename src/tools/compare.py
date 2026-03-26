@@ -93,6 +93,10 @@ def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
     ckpt_obs_dim = ckpt.get("obs_dim", OBS_DIM)
     algorithm = ckpt.get("algorithm", "dqn")
 
+    # Auto-detect hidden size from checkpoint weights
+    if "model" in ckpt and "actor.0.weight" in ckpt["model"]:
+        hidden = ckpt["model"]["actor.0.weight"].shape[0]
+
     if algorithm == "mappo":
         agent = MAPPOAgent(ckpt_obs_dim, ACT_DIM, hidden)
     else:

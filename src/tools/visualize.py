@@ -422,6 +422,10 @@ class Visualizer:
             algorithm = ckpt.get("algorithm", "dqn")
             self._algorithm = algorithm
 
+            # Auto-detect hidden size from checkpoint weights
+            if "model" in ckpt and "actor.0.weight" in ckpt["model"]:
+                self.hidden = ckpt["model"]["actor.0.weight"].shape[0]
+
             if algorithm == "mappo":
                 agent = MAPPOAgent(ckpt_obs_dim, ACT_DIM, self.hidden)
                 agent.load(self.model_path)

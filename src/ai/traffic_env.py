@@ -1,17 +1,20 @@
 """
 FlowMind AI - Gymnasium environment for multi-agent traffic signal RL.
 
-Each non-trivial TLS (traffic light system) in the SUMO network is an
-independent agent that shares the same neural network (parameter sharing).
+Each TLS (traffic light system) in the SUMO network is an independent
+agent that shares the same neural network (parameter sharing).
 The environment provides per-TLS observations and per-TLS rewards.
 
-Observation per TLS (fixed 26-dim vector):
-    [queue_0 ... queue_11, wait_0 ... wait_11, phase_ratio, elapsed_ratio]
+Observation per TLS (fixed 39-dim vector):
+    [queue(12), wait(12), density(12), phase_ratio, elapsed, min_green]
 
-Action per TLS:
-    Index 0..6 -> mapped to a green phase of that TLS.
-    Index 7    -> "TLS OFF" (all-green / yield) — the AI can learn that
-                  some intersections work better without signal control.
+Action per TLS (duration-only):
+    Phases auto-cycle in fixed SUMO order — the AI only picks how long
+    each phase lasts.  Like real Vietnamese signals with countdown displays,
+    the phase order is predictable and the duration is committed upfront.
+
+    discrete mode: index 0..N-1 → N duration levels from min to max green
+    continuous mode: float 0.0-1.0 → mapped to [min_green, max_green]
 """
 
 from __future__ import annotations
@@ -30,22 +33,29 @@ from .reward import compute_tls_reward
 
 # ── Constants ─────────────────────────────────────────────────────────
 MAX_INCOMING_EDGES = 12     # pad/truncate incoming edges to this size
-MAX_GREEN_PHASES = 7        # actions 0-6: choose a green phase
-ACT_OFF = -1                # OFF action DISABLED (was 7: all-green / yield)
-MIN_GREEN_STEPS = 60        # minimum green time before allowing phase change (30s real @ step_length=0.5)
+MAX_GREEN_PHASES = 7        # phases 0-6
+DEFAULT_DURATION_LEVELS = 7  # default number of discrete duration levels
+ACT_OFF = -1                 # OFF action DISABLED
+MIN_GREEN_STEPS = 60         # fallback minimum green (30s real @ step_length=0.5)
+
+# Action mode: "discrete" or "continuous"
+# discrete: N levels evenly spread between min and max green (ACT_DIM = N)
+# continuous: single float 0.0-1.0 mapped to min-max range (ACT_DIM = 1)
+ACTION_MODE = "discrete"     # default, overridden per-env
 
 # Observation layout per TLS (fixed size for parameter sharing):
 #   [0..11]   queue per edge          (12)
 #   [12..23]  wait per edge           (12)
 #   [24..35]  lane density per edge   (12)
-#   [Level 2 REMOVED] [36..47]  edge blocked by event   (12)
 #   [36]      current phase ratio     (1)
 #   [37]      elapsed time ratio      (1)
 #   [38]      min_green satisfied     (1)
-#   [Level 2 REMOVED] [51]      num active events       (1)
-OBS_DIM = MAX_INCOMING_EDGES * 3 + 3   # 39 (Level 1 only: no event features)
+OBS_DIM = MAX_INCOMING_EDGES * 3 + 3   # 39 (Level 1: no pressure, no events)
 OLD_OBS_DIM = MAX_INCOMING_EDGES * 2 + 2  # 26 (v1 layout)
-ACT_DIM = MAX_GREEN_PHASES             # 7 (no OFF action — agent must always pick a phase)
+# Duration-only action space (phases auto-cycle):
+# discrete mode: ACT_DIM = num_duration_levels (default 7)
+# continuous mode: ACT_DIM = 1 (single float)
+ACT_DIM = DEFAULT_DURATION_LEVELS  # overridden by env __init__
 
 
 V2_OBS_DIM = MAX_INCOMING_EDGES * 3 + 3  # 39 (same as OBS_DIM now)
@@ -90,12 +100,12 @@ class SumoTrafficEnv(gym.Env):
         min_incoming: int = 2,
         yellow_time: int = 3,
         allred_time: int = 6,  # 3 real seconds at step_length=0.5
-        # [Level 1] Pure timing optimization
-        # [Level 2 REMOVED] random_events: bool = True,
-        # [Level 2 REMOVED] max_concurrent_events: int = 2,
-        # [Level 2 REMOVED] event_probability: float = 0.01,
+        action_mode: str = "discrete",  # "discrete" or "continuous"
+        num_duration_levels: int = DEFAULT_DURATION_LEVELS,  # for discrete mode
     ) -> None:
         super().__init__()
+        self.action_mode = action_mode
+        self.num_duration_levels = num_duration_levels
 
         self.net_file = os.path.abspath(net_file)
         self.route_file = os.path.abspath(route_file)
@@ -156,6 +166,72 @@ class SumoTrafficEnv(gym.Env):
                 self._min_green_steps[tls.id] = 30
                 self._max_green_steps[tls.id] = 90
 
+            # For single-phase TLS (ped crossings), allow max_green up to
+            # 150% of their SUMO default — the engineering cap is too low
+            if tls.num_green_phases <= 1 and tls.phases:
+                default_green_steps = max(
+                    int(p.duration / 0.5)
+                    for p in tls.phases
+                    if any(c in ('G', 'g') for c in p.state)
+                ) if tls.phases else 60
+                self._max_green_steps[tls.id] = max(
+                    self._max_green_steps[tls.id],
+                    int(default_green_steps * 1.5)
+                )
+
+        # ── Per-TLS duration levels (in sim steps) ────────────────────
+        # N levels evenly spread from min_green to max_green for each TLS.
+        self._duration_levels: dict[str, list[int]] = {}
+        for tid in self.tls_ids:
+            mn = self._min_green_steps[tid]
+            mx = self._max_green_steps[tid]
+
+            # Read SUMO's default green duration from the TLS program
+            tls_info = self._tls_map.get(tid)
+            if tls_info and tls_info.phases:
+                default_dur = max(
+                    int(p.duration / 0.5)
+                    for p in tls_info.phases
+                    if any(c in ('G', 'g') for c in p.state)
+                ) if tls_info.phases else 60
+            else:
+                default_dur = 60
+
+            n = self.num_duration_levels
+            if n <= 1:
+                self._duration_levels[tid] = [max(mn, min(mx, default_dur))]
+            elif n == 2:
+                self._duration_levels[tid] = [mn, mx]
+            else:
+                levels = []
+                for i in range(n):
+                    t = i / (n - 1)
+                    val = int(mn + t * (mx - mn))
+                    levels.append(val)
+                self._duration_levels[tid] = levels
+
+        # ── Reward importance weights ─────────────────────────────────
+        # Weight by complexity: multi-phase intersections matter more
+        # than single-phase pedestrian crossings.
+        raw_weights = {}
+        for tls in self._tls_list:
+            gp = tls.num_green_phases
+            ie = max(len(tls.incoming_edges), 1)
+            if gp >= 2:
+                w = gp * ie
+            else:
+                total_lanes = sum(
+                    self._net.getEdge(eid).getLaneNumber()
+                    for eid in tls.incoming_edges
+                    if not eid.startswith(":")
+                ) if tls.incoming_edges else 1
+                w = total_lanes * 0.3
+            raw_weights[tls.id] = float(w)
+        mean_w = sum(raw_weights.values()) / max(len(raw_weights), 1)
+        self._reward_weight: dict[str, float] = {
+            tid: w / max(mean_w, 0.01) for tid, w in raw_weights.items()
+        }
+
         # Precompute avg transition for reward normalization
         transitions = [
             self._yellow_steps[t] + self._allred_steps[t] for t in self.tls_ids
@@ -176,7 +252,12 @@ class SumoTrafficEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=0.0, high=1.0, shape=(OBS_DIM,), dtype=np.float32
         )
-        self.action_space = gym.spaces.Discrete(ACT_DIM)
+        if self.action_mode == "continuous":
+            self.act_dim = 1
+            self.action_space = gym.spaces.Box(low=0.0, high=1.0, shape=(1,))
+        else:
+            self.act_dim = self.num_duration_levels
+            self.action_space = gym.spaces.Discrete(self.act_dim)
 
         # [Level 2 REMOVED] ── Random event config ──────────────────
         # self.random_events = random_events
@@ -203,6 +284,9 @@ class SumoTrafficEnv(gym.Env):
         self._current_phases: dict[str, int] = {}
         self._phase_start_step: dict[str, int] = {}
         self._green_start_step: dict[str, int] = {}  # when actual green began
+        self._countdown: dict[str, int] = {}  # Vietnamese countdown timer (sim steps remaining)
+        self._committed_green: dict[str, int] = {}  # initial countdown when phase changed (for logging)
+        self._cycle_index: dict[str, int] = {}  # index into green_phases for auto-cycling
 
     # ── Properties ────────────────────────────────────────────────────
 
@@ -211,9 +295,28 @@ class SumoTrafficEnv(gym.Env):
         return len(self.tls_ids)
 
     def get_valid_actions(self, tls_id: str) -> list[int]:
-        """Valid action indices for *tls_id* (0..N-1 = green phases)."""
-        phase_actions = list(range(len(self._green_phases.get(tls_id, [0]))))
-        return phase_actions
+        """Valid action indices for discrete mode."""
+        if self.action_mode == "continuous":
+            return [0]  # continuous has 1 "action" (the float)
+        return list(range(self.num_duration_levels))
+
+    def decode_duration_steps(self, tls_id: str, action) -> int:
+        """Convert action to duration in sim steps.
+
+        Discrete mode: action is an int index into duration_levels.
+        Continuous mode: action is a float 0.0-1.0 mapped to min-max range.
+        """
+        levels = self._duration_levels.get(tls_id, [60])
+        mn = self._min_green_steps.get(tls_id, 30)
+        mx = self._max_green_steps.get(tls_id, 90)
+
+        if self.action_mode == "continuous":
+            t = float(action) if not hasattr(action, '__len__') else float(action[0])
+            t = max(0.0, min(1.0, t))
+            return int(mn + t * (mx - mn))
+        else:
+            idx = min(int(action), len(levels) - 1)
+            return levels[idx]
 
     # [TLS CANDIDATE COMMENTED OUT] ── Candidate TLS helpers ──────
     # All candidate TLS tracking, action stats, snapshots, details,
@@ -286,7 +389,8 @@ class SumoTrafficEnv(gym.Env):
         binary = self._find_binary()
 
         if self.sumo_cfg:
-            cmd = [binary, "-c", self.sumo_cfg]
+            cmd = [binary, "-c", self.sumo_cfg,
+                   "-r", self.route_file]  # override route from cfg
         else:
             cmd = [binary, "-n", self.net_file, "-r", self.route_file]
 
@@ -325,6 +429,9 @@ class SumoTrafficEnv(gym.Env):
         self._current_phases.clear()
         self._phase_start_step.clear()
         self._green_start_step.clear()
+        self._countdown.clear()
+        self._committed_green.clear()
+        self._cycle_index.clear()
 
         # Initialise per-TLS tracking and validate green phases at runtime
         for tls_id in self.tls_ids:
@@ -335,6 +442,8 @@ class SumoTrafficEnv(gym.Env):
             except traci.TraCIException:
                 self._current_phases[tls_id] = 0
             self._phase_start_step[tls_id] = 0
+            self._countdown[tls_id] = 0  # all TLS free at start
+            self._cycle_index[tls_id] = 0  # start at first green phase
 
             # Re-validate green phase indices against SUMO's runtime program
             try:
@@ -366,58 +475,70 @@ class SumoTrafficEnv(gym.Env):
         return obs, {"step": self._sim_step, "sim_time": self._sim_step}
 
     def step(
-        self, actions: dict[str, int]
+        self, actions: dict  # dict[str, int] for discrete, dict[str, float] for continuous
     ) -> tuple[dict[str, np.ndarray], dict[str, float], bool, bool, dict]:
-        """Apply phase actions, advance SUMO by *delta_time* seconds, return
-        (obs, rewards, terminated, truncated, info)."""
+        """Apply duration actions with Vietnamese countdown timer model.
 
-        # ── 1. Resolve target phases and cache state strings ─────────
-        # We use setRedYellowGreenState exclusively (not setPhase) because
-        # setRedYellowGreenState switches the TLS to a custom 1-phase program,
-        # making a subsequent setPhase fail with "not in allowed range".
-        targets: dict[str, tuple[int, str]] = {}  # tls_id -> (phase_idx, state_str)
+        Phases auto-cycle in fixed SUMO order -- the AI only picks how long
+        each phase lasts (SHORT / MEDIUM / LONG).  Like real Vietnamese
+        signals with countdown displays, the phase order is predictable
+        and the duration is committed upfront.
+
+        When a countdown expires, the next phase in cycle starts automatically.
+        The AI then picks a duration for that new phase.
+
+        Advances SUMO by *delta_time* sim steps per call."""
+
+        # ── 1. Auto-cycle phases + apply AI duration ──────────────────
+        targets: dict[str, tuple[int, str]] = {}
+        changed_tls: list[str] = []
+        chosen_duration: dict[str, int] = {}
 
         for tls_id, action_idx in actions.items():
-            # ── Min-green enforcement (per-TLS) ────────────────────
-            elapsed = self._sim_step - self._phase_start_step.get(tls_id, 0)
             current_phase = self._current_phases.get(tls_id, 0)
-            min_g = self._min_green_steps.get(tls_id, 30)
-            if elapsed < min_g:
-                green_phases = self._green_phases.get(tls_id, [0])
-                for ai, gp in enumerate(green_phases):
-                    if gp == current_phase:
-                        action_idx = ai
-                        break
 
+            # If countdown active, TLS is locked -- skip
+            if self._countdown.get(tls_id, 0) > 0:
+                continue
+
+            # Countdown expired -> auto-advance to next green phase in cycle
             green_phases = self._green_phases.get(tls_id, [0])
-            target_phase = (
-                green_phases[action_idx]
-                if action_idx < len(green_phases)
-                else green_phases[0]
-            )
+            ci = self._cycle_index.get(tls_id, 0)
+            next_ci = (ci + 1) % len(green_phases)
+            target_phase = green_phases[next_ci]
+            self._cycle_index[tls_id] = next_ci
+
+            # Decode AI action -> duration in sim steps
+            chosen_duration[tls_id] = self.decode_duration_steps(tls_id, action_idx)
+
+            # Set target phase state
             tls_info = self._tls_map.get(tls_id)
             if tls_info and target_phase < len(tls_info.phases):
                 targets[tls_id] = (target_phase, tls_info.phases[target_phase].state)
             else:
                 targets[tls_id] = (0, "")
 
-        # ── 2. Detect phase changes, build per-TLS transition state ─
-        changed_tls: list[str] = []
-        tls_transition: dict[str, dict] = {}  # {tid: {yellow_rem, allred_rem, done}}
-
-        for tls_id, (target_phase, _) in targets.items():
-            current_phase = self._current_phases.get(tls_id, 0)
+            # Every countdown expiry triggers a phase change
             if target_phase != current_phase:
                 changed_tls.append(tls_id)
-                self._set_yellow(tls_id, current_phase)
-                self._current_phases[tls_id] = target_phase
-                yw = self._yellow_steps.get(tls_id, self.yellow_time)
-                ar = self._allred_steps.get(tls_id, self.allred_time)
-                tls_transition[tls_id] = {
-                    "yellow_rem": yw, "allred_rem": ar, "done": False,
-                }
 
-        # ── 3. Tick-by-tick transition (per-TLS yellow → allred → green) ─
+        # ── 2. Apply transitions for changed TLS ────────────────────
+        tls_transition: dict[str, dict] = {}
+        for tls_id in changed_tls:
+            self._set_yellow(tls_id, self._current_phases.get(tls_id, 0))
+            target_phase = targets[tls_id][0]
+            self._current_phases[tls_id] = target_phase
+            yw = self._yellow_steps.get(tls_id, self.yellow_time)
+            ar = self._allred_steps.get(tls_id, self.allred_time)
+            tls_transition[tls_id] = {
+                "yellow_rem": yw, "allred_rem": ar, "done": False,
+            }
+            # Set countdown = AI's chosen duration
+            dur = chosen_duration.get(tls_id, self._min_green_steps.get(tls_id, 30))
+            self._countdown[tls_id] = dur
+            self._committed_green[tls_id] = dur
+
+        # ── 3. Tick-by-tick transition (per-TLS yellow -> allred -> green)
         max_transition = max(
             (s["yellow_rem"] + s["allred_rem"] for s in tls_transition.values()),
             default=0,
@@ -430,7 +551,6 @@ class SumoTrafficEnv(gym.Env):
                 if st["yellow_rem"] > 0:
                     st["yellow_rem"] -= 1
                     if st["yellow_rem"] == 0:
-                        # Yellow done → set all-red
                         try:
                             cur = self._conn.trafficlight.getRedYellowGreenState(tid)
                             self._conn.trafficlight.setRedYellowGreenState(
@@ -440,7 +560,6 @@ class SumoTrafficEnv(gym.Env):
                 elif st["allred_rem"] > 0:
                     st["allred_rem"] -= 1
                     if st["allred_rem"] == 0:
-                        # All-red done → set green (early finish)
                         state_str = targets[tid][1]
                         if state_str:
                             try:
@@ -453,7 +572,7 @@ class SumoTrafficEnv(gym.Env):
                         st["done"] = True
             self._sim_step_and_track()
 
-        # ── 4. Set green for any TLS that didn't finish in the loop ──
+        # ── 4. Finalize green states ─────────────────────────────────
         for tid, st in tls_transition.items():
             if not st["done"]:
                 state_str = targets[tid][1]
@@ -466,7 +585,6 @@ class SumoTrafficEnv(gym.Env):
                 self._green_start_step[tid] = self._sim_step
                 self._phase_start_step[tid] = self._sim_step
 
-        # Set green for non-changing TLS (they stay green throughout)
         for tls_id, (_, state_str) in targets.items():
             if tls_id not in tls_transition:
                 if state_str:
@@ -478,10 +596,15 @@ class SumoTrafficEnv(gym.Env):
                 if tls_id not in self._green_start_step:
                     self._green_start_step[tls_id] = self._sim_step
 
-        # ── 5. Advance remaining green time ──────────────────────────
+        # ── 5. Advance green time + decrement countdowns ─────────────
         green_time = max(self.delta_time - max_transition, 1)
         for _ in range(green_time):
             self._sim_step_and_track()
+
+        # Decrement countdowns by full delta_time (total sim steps this call)
+        for tid in self.tls_ids:
+            if self._countdown.get(tid, 0) > 0:
+                self._countdown[tid] = max(0, self._countdown[tid] - self.delta_time)
 
         # ── 6. Observe & reward ───────────────────────────────────────
         obs = self._get_observations()
@@ -686,7 +809,7 @@ class SumoTrafficEnv(gym.Env):
             ar = self._allred_steps.get(tls_id, 4)
             tc = (yw + ar) / max(self._avg_transition, 1)
 
-            rewards[tls_id] = compute_tls_reward(
+            raw_reward = compute_tls_reward(
                 old_waiting=self._prev_waiting.get(tls_id, 0.0),
                 new_waiting=total_wait,
                 queue_lengths=queues,
@@ -696,6 +819,9 @@ class SumoTrafficEnv(gym.Env):
                 phase_changed=(tls_id in changed_tls_set) if changed_tls_set else False,
                 transition_cost=tc,
             )
+
+            # Apply importance weighting
+            rewards[tls_id] = raw_reward * self._reward_weight.get(tls_id, 1.0)
 
             self._prev_waiting[tls_id] = total_wait
             self._prev_throughput[tls_id] = incoming_veh
