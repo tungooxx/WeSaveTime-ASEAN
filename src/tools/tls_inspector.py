@@ -136,25 +136,21 @@ def main():
                 has_conflict = True
                 break
 
-        # Category
-        if t.id in nt_ids:
+        # Category:
+        # Multi-phase (GP>=2) = AI controlled
+        # Single-phase = keep default SUMO timing (pedestrian safety)
+        if gp >= 2:
             cat = "AI"
             color = GREEN
         elif near_ra:
-            cat = "ROUNDABOUT"
+            cat = "DEFAULT (roundabout)"
             color = ORANGE
         elif clustered:
-            cat = "CLUSTERED"
+            cat = "DEFAULT (clustered)"
             color = YELLOW
-        elif has_conflict:
-            cat = "CONFLICT"
-            color = RED
-        elif gp <= 1:
-            cat = "FORCED GREEN"
-            color = BLUE
         else:
-            cat = "DEFAULT"
-            color = FG2
+            cat = "DEFAULT (ped crossing)"
+            color = BLUE
 
         # Phase states
         phase_str = " | ".join(p.state for p in t.phases[:4])
@@ -212,9 +208,10 @@ def main():
     sb.pack(fill=tk.Y, side=tk.RIGHT, pady=5, padx=(0, 10))
 
     # Tag colors
-    for cat_name, color in [("AI", GREEN), ("FORCED GREEN", BLUE),
-                             ("ROUNDABOUT", ORANGE), ("CLUSTERED", YELLOW),
-                             ("CONFLICT", RED), ("DEFAULT", FG2)]:
+    for cat_name, color in [("AI", GREEN),
+                             ("DEFAULT (ped crossing)", BLUE),
+                             ("DEFAULT (roundabout)", ORANGE),
+                             ("DEFAULT (clustered)", YELLOW)]:
         tree.tag_configure(cat_name, foreground=color)
 
     # Populate

@@ -126,6 +126,7 @@ class TrainingThread(threading.Thread):
                 if num_workers > 1:
                     from src.ai.train import train_mappo_parallel
                     mappo_kwargs["num_workers"] = num_workers
+                    mappo_kwargs["curriculum"] = self.params.get("curriculum", True)
                     train_mappo_parallel(**mappo_kwargs)
                 else:
                     from src.ai.train import train_mappo_with_callbacks
@@ -207,11 +208,11 @@ class RLDashboard:
         param_defs = [
             ("episodes",       "Episodes",        500,    int),
             ("num_workers",    "CPU Workers",      4,      int),
-            ("lr",             "Learning Rate",    0.001,  float),
-            ("hidden",         "Hidden Size",      256,    int),
+            ("lr",             "Learning Rate",    0.0003, float),
+            ("hidden",         "Hidden Size",      512,    int),
             ("gamma",          "Gamma",            0.99,   float),
-            ("batch_size",     "Batch Size",       64,     int),
-            ("buffer_capacity","Buffer Size",      200000, int),
+            ("batch_size",     "Batch Size",       256,    int),
+            ("buffer_capacity","Buffer Size",      500000, int),
             ("epsilon_decay",  "Epsilon Decay",    500000, int),
             ("delta_time",     "Delta Time (s)",   30,     int),
             ("sim_length",     "Sim Steps",         1800,   int),
@@ -631,7 +632,7 @@ class RLDashboard:
         line = (
             f"[{src_tag}] Ep {ep_num:>4}/{total} | "
             f"R={reward:+.4f} | Loss={ep['mean_loss']:.4f} | "
-            f"eps={ep['epsilon']:.3f} | "
+            f"H={ep.get('entropy', 0):.3f} | "
             f"Wait={ep['avg_wait']:.1f}s | Queue={ep['avg_queue']:.1f} | "
             f"Veh={ep['vehicles']} | Col={n_col} | "
             f"+Add={n_add} -Rm={n_rm} | {ep['time_s']:.0f}s"

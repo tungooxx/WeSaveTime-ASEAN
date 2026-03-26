@@ -422,11 +422,14 @@ class Visualizer:
             algorithm = ckpt.get("algorithm", "dqn")
             self._algorithm = algorithm
 
+            # Auto-detect hidden size from checkpoint weights
+            ckpt_hidden = ckpt["model"]["actor.0.weight"].shape[0] if "model" in ckpt else self.hidden
+
             if algorithm == "mappo":
-                agent = MAPPOAgent(ckpt_obs_dim, ACT_DIM, self.hidden)
+                agent = MAPPOAgent(ckpt_obs_dim, ACT_DIM, ckpt_hidden)
                 agent.load(self.model_path)
             else:
-                agent = TrafficDQNAgent(ckpt_obs_dim, ACT_DIM, self.hidden)
+                agent = TrafficDQNAgent(ckpt_obs_dim, ACT_DIM, ckpt_hidden)
                 agent.load(self.model_path)
 
             self._set_status("Starting SUMO-gui...")

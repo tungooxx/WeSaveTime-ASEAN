@@ -34,19 +34,47 @@ class ActorCritic(nn.Module):
 
     Actor input: [local_obs, neighbor_mean_obs] = obs_dim * 2
     Critic input: [local_obs, global_mean_obs] = obs_dim * 2
+
+    Supports both discrete (Categorical) and continuous (Normal) action modes.
     """
 
-    def __init__(self, obs_dim: int, act_dim: int, hidden: int = 256) -> None:
+    def __init__(self, obs_dim: int, act_dim: int, hidden: int = 256,
+                 action_mode: str = "discrete") -> None:
         super().__init__()
-        # Actor: [local obs + neighbor obs] -> action logits
-        # Neighbor obs = mean of adjacent TLS observations (coordination)
-        self.actor = nn.Sequential(
+        self.action_mode = action_mode
+        self.act_dim = act_dim
+
+        # Shared backbone for actor
+        self.actor_backbone = nn.Sequential(
             nn.Linear(obs_dim * 2, hidden),
             nn.ReLU(),
             nn.Linear(hidden, hidden),
             nn.ReLU(),
-            nn.Linear(hidden, act_dim),
         )
+
+        if action_mode == "continuous":
+            # Continuous: output mean (0-1) and log_std
+            self.actor_mean = nn.Linear(hidden, 1)
+            self.actor_log_std = nn.Parameter(torch.zeros(1))
+        else:
+            # Discrete: output logits for N duration levels
+            self.actor_head = nn.Linear(hidden, act_dim)
+
+        # For checkpoint compatibility: create a sequential "actor" view
+        # so old code that accesses actor.0.weight still works for loading
+        if action_mode != "continuous":
+            self.actor = nn.Sequential(
+                nn.Linear(obs_dim * 2, hidden),
+                nn.ReLU(),
+                nn.Linear(hidden, hidden),
+                nn.ReLU(),
+                nn.Linear(hidden, act_dim),
+            )
+            # Share weights with backbone + head
+            self.actor[0] = self.actor_backbone[0]
+            self.actor[2] = self.actor_backbone[2]
+            self.actor[4] = self.actor_head
+
         # Critic: [local obs + global obs] -> value
         self.critic = nn.Sequential(
             nn.Linear(obs_dim * 2, hidden),
@@ -58,16 +86,22 @@ class ActorCritic(nn.Module):
 
     def forward_actor(self, obs: torch.Tensor,
                       neighbor_obs: Optional[torch.Tensor] = None,
-                      valid_mask: Optional[torch.Tensor] = None) -> Categorical:
+                      valid_mask: Optional[torch.Tensor] = None):
         if neighbor_obs is not None:
             x = torch.cat([obs, neighbor_obs], dim=-1)
         else:
-            # No neighbor info — pad with zeros
             x = torch.cat([obs, torch.zeros_like(obs)], dim=-1)
-        logits = self.actor(x)
-        if valid_mask is not None:
-            logits = logits.masked_fill(~valid_mask, -1e8)
-        return Categorical(logits=logits)
+
+        if self.action_mode == "continuous":
+            h = self.actor_backbone(x)
+            mean = torch.sigmoid(self.actor_mean(h))  # 0-1 range
+            std = torch.exp(self.actor_log_std).expand_as(mean)
+            return torch.distributions.Normal(mean, std)
+        else:
+            logits = self.actor(x)
+            if valid_mask is not None:
+                logits = logits.masked_fill(~valid_mask, -1e8)
+            return Categorical(logits=logits)
 
     def forward_critic(self, obs: torch.Tensor,
                        global_obs: torch.Tensor) -> torch.Tensor:
@@ -211,6 +245,7 @@ class MAPPOAgent:
         ppo_epochs: int = 10,
         mini_batch_size: int = 256,
         device: Optional[str] = None,
+        action_mode: str = "discrete",
     ) -> None:
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -218,6 +253,7 @@ class MAPPOAgent:
 
         self.obs_dim = obs_dim
         self.act_dim = act_dim
+        self.action_mode = action_mode
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         self.clip_eps = clip_eps
@@ -227,7 +263,8 @@ class MAPPOAgent:
         self.ppo_epochs = ppo_epochs
         self.mini_batch_size = mini_batch_size
 
-        self.network = ActorCritic(obs_dim, act_dim, hidden).to(self.device)
+        self.network = ActorCritic(obs_dim, act_dim, hidden,
+                                   action_mode=action_mode).to(self.device)
         self.optimizer = optim.Adam(self.network.parameters(), lr=lr)
         self.buffer = RolloutBuffer()
 
@@ -257,14 +294,21 @@ class MAPPOAgent:
             dist = self.network.forward_actor(obs_t, nbr_t, mask)
             value = self.network.forward_critic(obs_t, global_t)
 
-            if greedy:
-                action = dist.probs.argmax(dim=-1)
+            if self.action_mode == "continuous":
+                if greedy:
+                    action = dist.mean
+                else:
+                    action = dist.sample()
+                action = action.clamp(0.0, 1.0)
+                log_prob = dist.log_prob(action).sum(dim=-1)
+                return float(action.item()), float(log_prob.item()), float(value.item())
             else:
-                action = dist.sample()
-
-            log_prob = dist.log_prob(action)
-
-        return int(action.item()), float(log_prob.item()), float(value.item())
+                if greedy:
+                    action = dist.probs.argmax(dim=-1)
+                else:
+                    action = dist.sample()
+                log_prob = dist.log_prob(action)
+                return int(action.item()), float(log_prob.item()), float(value.item())
 
     def get_valid_mask(self, valid_actions: list[int]) -> np.ndarray:
         """Create boolean mask array for valid actions."""

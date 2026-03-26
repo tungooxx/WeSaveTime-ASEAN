@@ -135,10 +135,12 @@ def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
     import torch
     ckpt = torch.load(model_path, map_location="cpu", weights_only=True)
     ckpt_obs_dim = ckpt.get("obs_dim", OBS_DIM)
+    # Infer hidden size from actor weight shape
+    ckpt_hidden = ckpt["model"]["actor.0.weight"].shape[0] if "model" in ckpt else hidden
     algorithm = ckpt.get("algorithm", "dqn")
 
     if algorithm == "mappo":
-        agent = MAPPOAgent(ckpt_obs_dim, ACT_DIM, hidden)
+        agent = MAPPOAgent(ckpt_obs_dim, ACT_DIM, ckpt_hidden)
     else:
         agent = TrafficDQNAgent(ckpt_obs_dim, ACT_DIM, hidden)
     agent.load(model_path)

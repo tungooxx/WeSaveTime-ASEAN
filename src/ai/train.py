@@ -689,6 +689,29 @@ def _collect_episode_worker(args):
     }
 
 
+def _create_scaled_routes(route_file: str, fraction: float, tag: str) -> str:
+    """Create a route file with only *fraction* of the original vehicles.
+
+    Returns the path to the new scaled route file.  Vehicles are sampled
+    deterministically (every Nth) so the spatial distribution is preserved.
+    """
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(route_file)
+    root = tree.getroot()
+
+    vehicles = [e for e in root if e.tag in ("vehicle", "trip", "person")]
+    keep_every = max(1, round(1.0 / fraction))
+    remove = [v for i, v in enumerate(vehicles) if i % keep_every != 0]
+    for v in remove:
+        root.remove(v)
+
+    kept = len(vehicles) - len(remove)
+    out_path = route_file.replace(".rou.xml", f".cl_{tag}.rou.xml")
+    tree.write(out_path, encoding="unicode", xml_declaration=True)
+    return out_path
+
+
 def train_mappo_parallel(
     net_file: str,
     route_file: str,
@@ -711,6 +734,7 @@ def train_mappo_parallel(
     gui: bool = False,
     obs_dim: int = OBS_DIM,
     num_workers: int = 4,
+    curriculum: bool = True,
     on_episode=None,
     on_status=None,
     stop_check=None,
@@ -779,6 +803,33 @@ def train_mappo_parallel(
     abs_route = os.path.abspath(route_file)
     abs_cfg = os.path.abspath(sumo_cfg) if sumo_cfg else None
 
+    # ── Curriculum Learning ──────────────────────────────────────────
+    # Phase 1 (0-20%):  33% traffic  → learn basic phase selection
+    # Phase 2 (20-50%): 66% traffic  → learn coordination
+    # Phase 3 (50%+):   100% traffic → handle full demand
+    if curriculum:
+        cl_phases = [
+            (0.20, 0.33, "phase1"),   # first 20% of episodes: 33% traffic
+            (0.50, 0.66, "phase2"),   # next 30%: 66% traffic
+            (1.00, 1.00, "phase3"),   # rest: full traffic
+        ]
+        _status("Curriculum Learning enabled:")
+        cl_routes = {}
+        for _, frac, tag in cl_phases:
+            if frac < 1.0:
+                scaled = _create_scaled_routes(abs_route, frac, tag)
+                veh_count = int(3000 * frac)
+                cl_routes[tag] = os.path.abspath(scaled)
+                _status(f"  {tag}: {frac:.0%} traffic (~{veh_count} vehicles)")
+            else:
+                cl_routes[tag] = abs_route
+                _status(f"  {tag}: 100% traffic (full demand)")
+    else:
+        cl_phases = [(1.0, 1.0, "full")]
+        cl_routes = {"full": abs_route}
+
+    current_cl_phase = None
+
     while ep_count < episodes:
         if stop_check and stop_check():
             break
@@ -786,13 +837,24 @@ def train_mappo_parallel(
         t0 = time.time()
         batch_size = min(num_workers, episodes - ep_count)
 
+        # Determine curriculum phase route file
+        progress = ep_count / max(episodes, 1)
+        active_route = abs_route
+        for threshold, frac, tag in cl_phases:
+            if progress < threshold:
+                active_route = cl_routes[tag]
+                if tag != current_cl_phase:
+                    current_cl_phase = tag
+                    _status(f"  >> Curriculum: {tag} ({frac:.0%} traffic)")
+                break
+
         # Prepare worker args
         state_dict = {k: v.cpu() for k, v in agent.network.state_dict().items()}
         worker_args = []
         for w in range(batch_size):
             ep_seed = seed + ep_count + w + 1
             worker_args.append((
-                abs_net, abs_route, abs_cfg, delta_time, sim_length,
+                abs_net, active_route, abs_cfg, delta_time, sim_length,
                 ep_seed, obs_dim, w, state_dict, hidden, ACT_DIM,
             ))
 
@@ -832,6 +894,7 @@ def train_mappo_parallel(
                 "mean_reward": round(mean_r, 4),
                 "total_reward": round(result["total_reward"], 4),
                 "mean_loss": round(loss_stats["total_loss"], 6),
+                "entropy": round(loss_stats.get("entropy", 0.0), 4),
                 "epsilon": 0.0,
                 "steps": len(result["transitions"]) // n_agents,
                 "time_s": round(elapsed / batch_size, 1),
@@ -847,6 +910,16 @@ def train_mappo_parallel(
             if mean_r > best_reward:
                 best_reward = mean_r
                 agent.save(os.path.join(save_dir, "best_model.pt"))
+
+            # Save best model for full-traffic phase separately
+            is_full_traffic = (active_route == abs_route)
+            if is_full_traffic and (
+                not hasattr(train_mappo_parallel, '_best_full') or
+                mean_r > train_mappo_parallel._best_full
+            ):
+                train_mappo_parallel._best_full = mean_r
+                agent.save(os.path.join(save_dir, "best_model_full.pt"))
+                _status(f"  >> New best full-traffic model: R={mean_r:.4f}")
 
             if on_episode:
                 on_episode(ep_log)
