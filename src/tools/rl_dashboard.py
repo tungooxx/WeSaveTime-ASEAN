@@ -103,8 +103,11 @@ class TrainingThread(threading.Thread):
 
             algorithm = self.params.get("algorithm", "dqn")
             if algorithm == "mappo":
-                from src.ai.train import train_mappo_with_callbacks
                 # MAPPO uses different params than DQN
+                action_mode = self.params.get("action_mode", "discrete")
+                num_dur = self.params.get("num_duration_levels", 7)
+                num_workers = self.params.get("num_workers", 1)
+
                 mappo_kwargs = dict(
                     net_file=self.params["net"],
                     route_file=self.params["route"],
@@ -119,11 +122,19 @@ class TrainingThread(threading.Thread):
                     save_every=self.params["save_every"],
                     seed=self.params["seed"],
                     gui=self.params.get("gui", False),
+                    action_mode=action_mode,
+                    num_duration_levels=num_dur,
                     on_episode=lambda ep: self.metric_q.put(("episode", ep)),
                     on_status=lambda msg: self.metric_q.put(("status", msg)),
                     stop_check=lambda: self.stop_event.is_set(),
                 )
-                train_mappo_with_callbacks(**mappo_kwargs)
+                if num_workers > 1:
+                    from src.ai.train import train_mappo_parallel
+                    mappo_kwargs["num_workers"] = num_workers
+                    train_mappo_parallel(**mappo_kwargs)
+                else:
+                    from src.ai.train import train_mappo_with_callbacks
+                    train_mappo_with_callbacks(**mappo_kwargs)
             elif self.params.get("dyna", False):
                 from src.ai.train import train_dyna_with_callbacks
                 train_dyna_with_callbacks(**common_kwargs)
@@ -213,8 +224,44 @@ class RLDashboard:
             self._param_entries.append(entry)
         self._param_types = {k: t for k, _, _, t in param_defs}
 
-        # File paths
+        # Action mode dropdown
         row = len(param_defs)
+        tk.Label(left, text="Action Mode:", font=("Segoe UI", 9),
+                 fg=FG2, bg=BG, anchor=tk.W).grid(
+            row=row, column=0, sticky=tk.W, pady=2)
+        self._action_mode_var = tk.StringVar(value="discrete")
+        action_mode_menu = tk.OptionMenu(
+            left, self._action_mode_var, "discrete", "continuous")
+        action_mode_menu.configure(bg=BG2, fg=FG, font=("Consolas", 9),
+                                   highlightthickness=0)
+        action_mode_menu.grid(row=row, column=1, padx=(10, 0), pady=2, sticky=tk.W)
+
+        # Duration levels (for discrete mode)
+        row += 1
+        tk.Label(left, text="Duration Levels:", font=("Segoe UI", 9),
+                 fg=FG2, bg=BG, anchor=tk.W).grid(
+            row=row, column=0, sticky=tk.W, pady=2)
+        self._duration_levels_var = tk.StringVar(value="7")
+        dur_menu = tk.OptionMenu(
+            left, self._duration_levels_var, "3", "5", "7", "10", "15")
+        dur_menu.configure(bg=BG2, fg=FG, font=("Consolas", 9),
+                           highlightthickness=0)
+        dur_menu.grid(row=row, column=1, padx=(10, 0), pady=2, sticky=tk.W)
+
+        # Num workers
+        row += 1
+        tk.Label(left, text="CPU Workers:", font=("Segoe UI", 9),
+                 fg=FG2, bg=BG, anchor=tk.W).grid(
+            row=row, column=0, sticky=tk.W, pady=2)
+        self._workers_var = tk.StringVar(value="4")
+        workers_menu = tk.OptionMenu(
+            left, self._workers_var, "1", "2", "4", "6")
+        workers_menu.configure(bg=BG2, fg=FG, font=("Consolas", 9),
+                               highlightthickness=0)
+        workers_menu.grid(row=row, column=1, padx=(10, 0), pady=2, sticky=tk.W)
+
+        # File paths
+        row += 1
         tk.Label(left, text="Network:", font=("Segoe UI", 9),
                  fg=FG2, bg=BG).grid(row=row, column=0, sticky=tk.W, pady=(10, 2))
         self._net_var = tk.StringVar(value=_DANANG["net"])
@@ -392,6 +439,9 @@ class RLDashboard:
         p["gui"] = self._gui_var.get()
         p["dyna"] = self._dyna_var.get()
         p["algorithm"] = self._algo_var.get()
+        p["action_mode"] = self._action_mode_var.get()
+        p["num_duration_levels"] = int(self._duration_levels_var.get())
+        p["num_workers"] = int(self._workers_var.get())
         return p
 
     def _start_training(self):
