@@ -248,17 +248,16 @@ class RLDashboard:
                            highlightthickness=0)
         dur_menu.grid(row=row, column=1, padx=(10, 0), pady=2, sticky=tk.W)
 
-        # Num workers
+        # Num workers (text input like other params)
         row += 1
         tk.Label(left, text="CPU Workers:", font=("Segoe UI", 9),
                  fg=FG2, bg=BG, anchor=tk.W).grid(
             row=row, column=0, sticky=tk.W, pady=2)
         self._workers_var = tk.StringVar(value="4")
-        workers_menu = tk.OptionMenu(
-            left, self._workers_var, "1", "2", "4", "6")
-        workers_menu.configure(bg=BG2, fg=FG, font=("Consolas", 9),
-                               highlightthickness=0)
-        workers_menu.grid(row=row, column=1, padx=(10, 0), pady=2, sticky=tk.W)
+        tk.Entry(left, textvariable=self._workers_var, width=12,
+                 bg=BG2, fg=FG, insertbackground=FG,
+                 font=("Consolas", 10)).grid(
+            row=row, column=1, padx=(10, 0), pady=2)
 
         # File paths
         row += 1
