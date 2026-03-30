@@ -37,13 +37,16 @@ if _PROJECT_ROOT not in sys.path:
 import tkinter as tk
 from tkinter import ttk
 
+import sumolib
 import traci
+import traci.constants as tc
 
 from src.ai.traffic_env import (
     SumoTrafficEnv, OBS_DIM, OLD_OBS_DIM, ACT_DIM, ACT_OFF,
     remap_obs_for_old_model,
 )
 from src.ai.dqn_agent import TrafficDQNAgent
+from src.ai.mappo_agent import MAPPOAgent
 
 # ── Colors (Catppuccin Mocha) ────────────────────────────────────────
 BG = "#1e1e2e"
@@ -67,11 +70,48 @@ def _rgb_str(rgba):
     return f"{rgba[0]},{rgba[1]},{rgba[2]},{rgba[3]}"
 
 
+# ── Congestion monitor helpers ─────────────────────────────────────────
+_CONG_SUB_VARS = [
+    tc.LAST_STEP_VEHICLE_NUMBER,
+    tc.LAST_STEP_MEAN_SPEED,
+    tc.LAST_STEP_OCCUPANCY,
+    tc.LAST_STEP_VEHICLE_HALTING_NUMBER,
+    tc.VAR_WAITING_TIME,
+]
+
+LEVEL_COLORS = {
+    "SEVERE": "#ff3333",
+    "MODERATE": "#ffaa00",
+    "LIGHT": "#88cc44",
+    "FREE": "#44aa88",
+}
+
+
+def _congestion_score(wait, halt, speed, max_speed, occ):
+    speed_ratio = 1.0 - min(speed / max(max_speed, 0.1), 1.0)
+    return (
+        0.35 * speed_ratio
+        + 0.25 * min(wait / 200.0, 1.0)
+        + 0.25 * min(halt / 15.0, 1.0)
+        + 0.15 * min(occ, 1.0)
+    )
+
+
+def _congestion_level(score):
+    if score >= 0.7:
+        return "SEVERE"
+    if score >= 0.4:
+        return "MODERATE"
+    if score >= 0.15:
+        return "LIGHT"
+    return "FREE"
+
+
 class Visualizer:
     """Run trained model in SUMO-gui with overlays and stats panel."""
 
     def __init__(self, model_path: str, net_file: str, route_file: str,
-                 sumo_cfg: str, hidden: int = 256, delta_time: int = 10,
+                 sumo_cfg: str, hidden: int = 256, delta_time: int = 30,
                  sim_length: int = 3600, seed: int = 1000, speed: float = 0.05):
         self.model_path = model_path
         self.net_file = net_file
@@ -96,7 +136,7 @@ class Visualizer:
     def _build_panel(self):
         self.root = tk.Tk()
         self.root.title("FlowMind AI - Live Visualization")
-        self.root.geometry("420x520")
+        self.root.geometry("560x880")
         self.root.configure(bg=BG)
         self.root.attributes("-topmost", True)
 
@@ -134,55 +174,151 @@ class Visualizer:
                 row=i, column=1, sticky=tk.E, pady=2)
             self._metrics[key] = var
 
-        # TLS decisions frame
-        tf = tk.LabelFrame(self.root, text=" Agent TLS Decisions ",
+        # ── Baseline vs AI Comparison ───────────────────────────────
+        cf = tk.LabelFrame(self.root, text=" Baseline vs AI (Live) ",
                            font=("Segoe UI", 10, "bold"), fg=FG, bg=BG,
                            padx=10, pady=8)
-        tf.pack(fill=tk.X, padx=10, pady=5)
+        cf.pack(fill=tk.X, padx=10, pady=5)
 
-        self._tls_vars = {}
-        tls_labels = [
-            ("existing_keep", "Existing: Keep", GREEN),
-            ("existing_remove", "Existing: Remove", RED),
-            ("candidate_add", "Candidate: Add TLS", ORANGE),
-            ("candidate_off", "Candidate: No TLS", FG2),
+        # Load baseline from comparison.json if available
+        self._baseline_data = {"avg_wait": 0, "avg_queue": 0, "throughput": 0}
+        comp_file = os.path.join(_PROJECT_ROOT, "checkpoints", "comparison.json")
+        if os.path.isfile(comp_file):
+            try:
+                with open(comp_file) as f:
+                    cdata = json.load(f)
+                bl = cdata.get("baseline", {})
+                self._baseline_data = {
+                    "avg_wait": bl.get("avg_wait", 0),
+                    "avg_queue": bl.get("avg_queue", 0),
+                    "throughput": bl.get("throughput", 0),
+                }
+            except Exception:
+                pass
+
+        # Header row
+        tk.Label(cf, text="Metric", font=("Segoe UI", 9, "bold"),
+                 fg=FG2, bg=BG, anchor=tk.W).grid(row=0, column=0, sticky=tk.W)
+        tk.Label(cf, text="Baseline", font=("Segoe UI", 9, "bold"),
+                 fg=RED, bg=BG, anchor=tk.E, width=10).grid(row=0, column=1, sticky=tk.E)
+        tk.Label(cf, text="AI (Live)", font=("Segoe UI", 9, "bold"),
+                 fg=GREEN, bg=BG, anchor=tk.E, width=10).grid(row=0, column=2, sticky=tk.E)
+        tk.Label(cf, text="Change", font=("Segoe UI", 9, "bold"),
+                 fg=BLUE, bg=BG, anchor=tk.E, width=10).grid(row=0, column=3, sticky=tk.E)
+
+        self._comp_vars = {}
+        comp_rows = [
+            ("wait", "Wait Time (s)"),
+            ("queue", "Queue Length"),
+            ("throughput", "Throughput"),
         ]
-        for i, (key, text, color) in enumerate(tls_labels):
-            tk.Label(tf, text=text + ":", font=("Segoe UI", 9),
-                     fg=color, bg=BG, anchor=tk.W).grid(
-                row=i, column=0, sticky=tk.W, pady=2)
-            var = tk.StringVar(value="0")
-            tk.Label(tf, textvariable=var, font=("Consolas", 11, "bold"),
-                     fg=color, bg=BG, anchor=tk.E, width=6).grid(
-                row=i, column=1, sticky=tk.E, pady=2)
-            self._tls_vars[key] = var
+        for i, (key, label) in enumerate(comp_rows, start=1):
+            tk.Label(cf, text=label, font=("Segoe UI", 9),
+                     fg=FG2, bg=BG, anchor=tk.W).grid(row=i, column=0, sticky=tk.W, pady=2)
+            # Baseline value (static)
+            bl_val = self._baseline_data.get(f"avg_{key}" if key != "throughput" else key, 0)
+            bl_text = f"{bl_val:.1f}" if key != "throughput" else f"{bl_val:.0f}"
+            tk.Label(cf, text=bl_text, font=("Consolas", 10),
+                     fg=RED, bg=BG, anchor=tk.E, width=10).grid(row=i, column=1, sticky=tk.E, pady=2)
+            # AI value (live)
+            ai_var = tk.StringVar(value="--")
+            tk.Label(cf, textvariable=ai_var, font=("Consolas", 10, "bold"),
+                     fg=GREEN, bg=BG, anchor=tk.E, width=10).grid(row=i, column=2, sticky=tk.E, pady=2)
+            # Change (live)
+            chg_var = tk.StringVar(value="--")
+            tk.Label(cf, textvariable=chg_var, font=("Consolas", 10, "bold"),
+                     fg=BLUE, bg=BG, anchor=tk.E, width=10).grid(row=i, column=3, sticky=tk.E, pady=2)
+            self._comp_vars[key] = (ai_var, chg_var, bl_val)
 
-        # Active events display
-        ef = tk.LabelFrame(self.root, text=" Active Events ",
-                           font=("Segoe UI", 10, "bold"), fg=ORANGE, bg=BG,
-                           padx=10, pady=5)
-        ef.pack(fill=tk.X, padx=10, pady=5)
-        self._events_var = tk.StringVar(value="None")
-        tk.Label(ef, textvariable=self._events_var,
-                 font=("Consolas", 9), fg=YELLOW, bg=BG,
-                 anchor=tk.W, justify=tk.LEFT).pack(fill=tk.X)
+        # [Level 2 REMOVED] Active events display removed
 
-        # Legend
-        lf = tk.LabelFrame(self.root, text=" Map Legend ",
-                           font=("Segoe UI", 10, "bold"), fg=FG, bg=BG,
-                           padx=10, pady=5)
-        lf.pack(fill=tk.X, padx=10, pady=5)
+        # ── Tabbed notebook: TLS Log + Congestion ─────────────────
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Dark.TNotebook", background=BG)
+        style.configure("Dark.TNotebook.Tab", background=BG2,
+                        foreground=FG, padding=[8, 4],
+                        font=("Segoe UI", 9, "bold"))
+        style.map("Dark.TNotebook.Tab",
+                  background=[("selected", "#585b70")],
+                  foreground=[("selected", "#cdd6f4")])
 
-        legends = [
-            ("Green circle", "Agent keeps this signal", GREEN),
-            ("Red circle", "Agent wants to REMOVE", RED),
-            ("Orange diamond", "Agent wants to ADD here", ORANGE),
-            ("Gray diamond", "Candidate - not needed", FG2),
-        ]
-        for i, (sym, desc, color) in enumerate(legends):
-            tk.Label(lf, text=f"{sym}: {desc}",
-                     font=("Segoe UI", 8), fg=color, bg=BG,
-                     anchor=tk.W).grid(row=i, column=0, sticky=tk.W)
+        notebook = ttk.Notebook(self.root, style="Dark.TNotebook")
+        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        # ── Tab 1: TLS Action Log ────────────────────────────────
+        log_frame = tk.Frame(notebook, bg=BG)
+        notebook.add(log_frame, text=" TLS Action Log ")
+
+        self._log_text = tk.Text(log_frame, font=("Consolas", 8),
+                                  bg=BG2, fg=FG, height=10, width=48,
+                                  wrap=tk.WORD, state=tk.DISABLED,
+                                  borderwidth=0, highlightthickness=0)
+        log_scrollbar = ttk.Scrollbar(log_frame, orient=tk.VERTICAL,
+                                       command=self._log_text.yview)
+        self._log_text.configure(yscrollcommand=log_scrollbar.set)
+        log_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._log_text.pack(fill=tk.BOTH, expand=True)
+
+        self._log_text.tag_configure("header", foreground=BLUE)
+        self._log_text.tag_configure("change", foreground=YELLOW)
+        self._log_text.tag_configure("keep", foreground=FG2)
+
+        # ── Tab 2: Live Congestion Monitor ────────────────────────
+        cong_frame = tk.Frame(notebook, bg=BG)
+        notebook.add(cong_frame, text=" Congestion Monitor ")
+
+        # Legend bar
+        leg = tk.Frame(cong_frame, bg=BG)
+        leg.pack(fill=tk.X, padx=5, pady=(5, 2))
+        for lvl, col in LEVEL_COLORS.items():
+            tk.Label(leg, text=f" {lvl} ", font=("Segoe UI", 8, "bold"),
+                     fg="white", bg=col).pack(side=tk.LEFT, padx=2)
+        tk.Label(leg, text="  Dbl-click to fly",
+                 font=("Segoe UI", 8, "italic"), fg=FG2, bg=BG
+                 ).pack(side=tk.LEFT, padx=6)
+
+        self._cong_summary_var = tk.StringVar(value="Waiting for data...")
+        tk.Label(cong_frame, textvariable=self._cong_summary_var,
+                 font=("Segoe UI", 9), fg=FG2, bg=BG).pack(anchor=tk.W, padx=5)
+
+        # Congestion table
+        cols = ("rank", "level", "road", "score", "wait", "stopped",
+                "speed", "veh", "occ")
+        style.configure("Cong.Treeview", background=BG2,
+                        foreground=FG, fieldbackground=BG2,
+                        rowheight=22, font=("Consolas", 9))
+        style.configure("Cong.Treeview.Heading", background="#45475a",
+                        foreground=FG, font=("Segoe UI", 9, "bold"))
+        style.map("Cong.Treeview", background=[("selected", "#585b70")])
+
+        ctf = tk.Frame(cong_frame, bg=BG)
+        ctf.pack(fill=tk.BOTH, expand=True, padx=5, pady=3)
+
+        self._cong_tree = ttk.Treeview(ctf, columns=cols, show="headings",
+                                        style="Cong.Treeview", selectmode="browse")
+        heads = {
+            "rank": ("#", 30), "level": ("Level", 70),
+            "road": ("Road", 180), "score": ("Score", 50),
+            "wait": ("Wait", 50), "stopped": ("Stop", 45),
+            "speed": ("km/h", 50), "veh": ("Veh", 40),
+            "occ": ("Occ%", 45),
+        }
+        for c, (label, w) in heads.items():
+            self._cong_tree.heading(c, text=label)
+            self._cong_tree.column(c, width=w, minwidth=w,
+                                    anchor=tk.W if c == "road" else tk.CENTER)
+
+        csb = ttk.Scrollbar(ctf, orient=tk.VERTICAL, command=self._cong_tree.yview)
+        self._cong_tree.configure(yscrollcommand=csb.set)
+        csb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._cong_tree.pack(fill=tk.BOTH, expand=True)
+
+        for lvl, col in LEVEL_COLORS.items():
+            self._cong_tree.tag_configure(lvl, foreground=col)
+
+        self._cong_tree.bind("<Double-1>", self._on_cong_dbl_click)
+        self._cong_row_edges: dict[str, tuple[float, float]] = {}  # iid -> (x, y)
 
         # Stop button
         tk.Button(self.root, text="Stop & Close", font=("Segoe UI", 10, "bold"),
@@ -190,6 +326,17 @@ class Visualizer:
                   command=self._on_close).pack(pady=10)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_cong_dbl_click(self, _event):
+        """Fly SUMO-gui camera to double-clicked congested road."""
+        item = self._cong_tree.focus()
+        coords = self._cong_row_edges.get(item)
+        if coords and hasattr(self, '_env') and self._env and self._env._conn:
+            try:
+                self._env._conn.gui.setOffset("View #0", coords[0], coords[1])
+                self._env._conn.gui.setZoom("View #0", 800)
+            except Exception:
+                pass
 
     def _on_close(self):
         self._stop = True
@@ -215,6 +362,52 @@ class Visualizer:
         except Exception:
             pass
 
+    def _update_comparison(self, metrics):
+        """Update the baseline vs AI comparison panel."""
+        wait = metrics.get("avg_wait_time", 0)
+        queue = metrics.get("avg_queue_length", 0)
+        throughput = metrics.get("throughput", 0)
+
+        updates = {
+            "wait": wait,
+            "queue": queue,
+            "throughput": throughput,
+        }
+        for key, ai_val in updates.items():
+            ai_var, chg_var, bl_val = self._comp_vars[key]
+            if key == "throughput":
+                ai_text = f"{ai_val:.0f}"
+            else:
+                ai_text = f"{ai_val:.1f}"
+
+            if bl_val > 0:
+                pct = (ai_val - bl_val) / bl_val * 100
+                sign = "+" if pct >= 0 else ""
+                chg_text = f"{sign}{pct:.0f}%"
+            else:
+                chg_text = "--"
+
+            try:
+                self.root.after(0, lambda v=ai_var, t=ai_text: v.set(t))
+                self.root.after(0, lambda v=chg_var, t=chg_text: v.set(t))
+            except Exception:
+                pass
+
+    def _append_log(self, text: str, tag: str = ""):
+        """Thread-safe append to the TLS action log."""
+        def _do():
+            self._log_text.configure(state=tk.NORMAL)
+            if tag:
+                self._log_text.insert(tk.END, text + "\n", tag)
+            else:
+                self._log_text.insert(tk.END, text + "\n")
+            self._log_text.see(tk.END)
+            self._log_text.configure(state=tk.DISABLED)
+        try:
+            self.root.after(0, _do)
+        except Exception:
+            pass
+
     def _run_sim(self):
         """Background thread: load model, start SUMO-gui, run agent."""
         try:
@@ -226,10 +419,19 @@ class Visualizer:
                               weights_only=True)
             ckpt_obs_dim = ckpt.get("obs_dim", OBS_DIM)
             self._model_obs_dim = ckpt_obs_dim
+            algorithm = ckpt.get("algorithm", "dqn")
+            self._algorithm = algorithm
 
-            agent = TrafficDQNAgent(ckpt_obs_dim, ACT_DIM, self.hidden)
-            agent.load(self.model_path)
-            # greedy=True is passed to select_action, no need to set epsilon
+            # Auto-detect hidden size from checkpoint weights
+            if "model" in ckpt and "actor.0.weight" in ckpt["model"]:
+                self.hidden = ckpt["model"]["actor.0.weight"].shape[0]
+
+            if algorithm == "mappo":
+                agent = MAPPOAgent(ckpt_obs_dim, ACT_DIM, self.hidden)
+                agent.load(self.model_path)
+            else:
+                agent = TrafficDQNAgent(ckpt_obs_dim, ACT_DIM, self.hidden)
+                agent.load(self.model_path)
 
             self._set_status("Starting SUMO-gui...")
 
@@ -257,6 +459,25 @@ class Visualizer:
 
             self._set_status(f"Running: {env.num_agents} TLS agents")
 
+            # Build TLS road name lookup from sumolib network
+            tls_road_names: dict[str, str] = {}
+            for tid in env.tls_ids:
+                try:
+                    node = env._net.getNode(tid)
+                    # Get unique road names from incoming edges
+                    road_names = set()
+                    for edge in node.getIncoming():
+                        name = edge.getName() or edge.getID()
+                        # Trim long IDs, prefer human-readable names
+                        if name:
+                            road_names.add(name.split("#")[0])
+                    tls_road_names[tid] = " / ".join(sorted(road_names)[:3]) or tid
+                except Exception:
+                    tls_road_names[tid] = tid
+
+            # Track previous phases to detect changes
+            prev_phases: dict[str, int] = {}
+
             # Per-TLS action tracking for live overlay updates
             action_counts: dict[str, Counter] = {
                 tid: Counter() for tid in env.tls_ids
@@ -266,22 +487,33 @@ class Visualizer:
             terminated = truncated = False
 
             # Set initial SUMO-gui view (zoom, delay)
+            self._env = env  # store ref for fly-to
             try:
                 conn = env._conn
                 conn.gui.setSchema("View #0", "real world")
                 conn.gui.setDelay(50)  # 50ms between steps for visibility
             except Exception:
-                pass
+                conn = env._conn
+
+            # Setup congestion monitoring subscriptions on same connection
+            self._setup_congestion_subscriptions(conn, env._net)
 
             # Check if model needs obs remapping (old 26-dim vs new 39-dim)
             needs_remap = (ckpt_obs_dim == OLD_OBS_DIM and OBS_DIM != OLD_OBS_DIM)
 
             while not (terminated or truncated) and not self._stop:
                 actions = {}
+                if self._algorithm == "mappo":
+                    global_obs = np.mean(
+                        [obs[tid] for tid in env.tls_ids], axis=0
+                    ).astype(np.float32)
                 for tid in env.tls_ids:
                     valid = env.get_valid_actions(tid)
                     o = remap_obs_for_old_model(obs[tid]) if needs_remap else obs[tid]
-                    a = agent.select_action(o, valid, greedy=True)
+                    if self._algorithm == "mappo":
+                        a, _, _ = agent.select_action(o, global_obs, valid, greedy=True)
+                    else:
+                        a = agent.select_action(o, valid, greedy=True)
                     actions[tid] = a
                     action_counts[tid][a] += 1
 
@@ -302,35 +534,57 @@ class Visualizer:
                 self._update_var("reward", f"{step_reward:+.3f}")
                 self._update_var("total_reward", f"{total_reward:+.1f}")
 
+                # Update baseline vs AI comparison
+                self._update_comparison(metrics)
+
+                # Log TLS phase changes with cycle timing
+                changes_this_step = []
+                for tid in env.tls_ids:
+                    cur_phase = env._current_phases.get(tid, 0)
+                    old_phase = prev_phases.get(tid, -1)
+                    if old_phase != cur_phase:
+                        road = tls_road_names.get(tid, tid)
+                        try:
+                            state_str = env._conn.trafficlight.getRedYellowGreenState(tid)
+                        except Exception:
+                            state_str = "?"
+                        # Per-TLS timing
+                        yw = env._yellow_steps.get(tid, 6) * 0.5
+                        ar = env._allred_steps.get(tid, 4) * 0.5
+                        gr = max(env.delta_time - env._yellow_steps.get(tid, 6)
+                                 - env._allred_steps.get(tid, 4), 1) * 0.5
+                        # Get tier from geometry
+                        tls_info = env._tls_map.get(tid)
+                        tier = tls_info.geometry.tier[:3].upper() if (
+                            tls_info and tls_info.geometry) else "???"
+                        n_g = sum(1 for c in state_str if c in ('G', 'g'))
+                        n_r = sum(1 for c in state_str if c in ('r', 'R'))
+                        changes_this_step.append(
+                            f"  {road[:20]:<20s} [{tier}] P{old_phase}->P{cur_phase} "
+                            f"G={gr:.0f}s Y={yw:.0f}s R={ar:.0f}s "
+                            f"[{state_str[:12]}] G:{n_g} R:{n_r}"
+                        )
+                    prev_phases[tid] = cur_phase
+
+                if changes_this_step:
+                    sim_t = metrics.get('sim_time', 0)
+                    self._append_log(f"--- Step {step} | t={sim_t}s ---", "header")
+                    for line in changes_this_step:
+                        self._append_log(line, "change")
+
                 # Update TLS overlays every 10 steps
                 if step % 10 == 1:
                     self._update_overlays(env, action_counts, candidate_info)
 
-                # Update active events display
-                active_events = env.get_active_events()
-                if active_events:
-                    evt_lines = []
-                    for ae in active_events:
-                        evt_lines.append(
-                            f"{ae['type'].upper()} "
-                            f"(int={ae['intensity']:.0%}, "
-                            f"{ae['remaining']:.0f}s left)")
-                    try:
-                        self.root.after(0, lambda l=evt_lines:
-                            self._events_var.set("\n".join(l)))
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        self.root.after(0, lambda:
-                            self._events_var.set("None"))
-                    except Exception:
-                        pass
+                # Poll congestion data every 3 steps
+                if step % 3 == 0:
+                    self._poll_congestion(env._conn)
+
+                # [Level 2 REMOVED] Active events display removed
 
                 self._set_status(
                     f"Step {step} | {metrics.get('sim_time', 0)}s | "
-                    f"Veh={metrics.get('total_vehicles', 0)} | "
-                    f"Events={len(active_events)}")
+                    f"Veh={metrics.get('total_vehicles', 0)}")
 
                 if self.speed > 0:
                     time.sleep(self.speed)
@@ -344,6 +598,73 @@ class Visualizer:
             import traceback
             self._set_status(f"Error: {e}")
             print(traceback.format_exc())
+
+    def _setup_congestion_subscriptions(self, conn, net):
+        """Subscribe to edge data for congestion monitoring."""
+        self._cong_edges: dict[str, dict] = {}
+        for edge in net.getEdges():
+            eid = edge.getID()
+            if eid.startswith(":"):
+                continue
+            if edge.getLaneNumber() < 2:
+                continue
+            shape = edge.getShape()
+            mid = len(shape) // 2
+            cx, cy = shape[mid] if shape else (0.0, 0.0)
+            self._cong_edges[eid] = {
+                "name": edge.getName() or eid,
+                "max_speed": edge.getSpeed(),
+                "cx": cx, "cy": cy,
+            }
+            conn.edge.subscribe(eid, _CONG_SUB_VARS)
+
+    def _poll_congestion(self, conn):
+        """Read subscription results and update the congestion table."""
+        try:
+            all_results = conn.edge.getAllSubscriptionResults()
+        except Exception:
+            return
+
+        rows = []
+        for eid, data in all_results.items():
+            info = self._cong_edges.get(eid)
+            if not info:
+                continue
+            veh = data.get(tc.LAST_STEP_VEHICLE_NUMBER, 0)
+            halt = data.get(tc.LAST_STEP_VEHICLE_HALTING_NUMBER, 0)
+            wait = data.get(tc.VAR_WAITING_TIME, 0.0)
+            if veh == 0 and halt == 0 and wait == 0:
+                continue
+            speed = data.get(tc.LAST_STEP_MEAN_SPEED, 0.0)
+            occ = data.get(tc.LAST_STEP_OCCUPANCY, 0.0)
+            sc = _congestion_score(wait, halt, speed, info["max_speed"], occ)
+            lvl = _congestion_level(sc)
+            rows.append((sc, lvl, info["name"], wait, halt, speed, veh, occ,
+                         info["cx"], info["cy"], eid))
+
+        rows.sort(key=lambda r: r[0], reverse=True)
+        top = rows[:40]
+
+        def _update_tree():
+            self._cong_tree.delete(*self._cong_tree.get_children())
+            self._cong_row_edges.clear()
+            for i, (sc, lvl, name, wait, halt, speed, veh, occ, cx, cy, eid) in enumerate(top):
+                iid = self._cong_tree.insert("", tk.END, values=(
+                    i + 1, lvl, name[:35],
+                    f"{sc:.2f}", f"{wait:.0f}", halt,
+                    f"{speed * 3.6:.1f}", veh,
+                    f"{occ * 100:.1f}",
+                ), tags=(lvl,))
+                self._cong_row_edges[iid] = (cx, cy)
+            sev = sum(1 for r in top if r[1] == "SEVERE")
+            mod = sum(1 for r in top if r[1] == "MODERATE")
+            self._cong_summary_var.set(
+                f"Top {len(top)} roads | SEVERE: {sev} | MODERATE: {mod}")
+
+        try:
+            self.root.after(0, _update_tree)
+        except Exception:
+            pass
 
     def _update_overlays(self, env, action_counts, candidate_info):
         """Add colored POIs on SUMO-gui map for each TLS."""
@@ -359,33 +680,11 @@ class Visualizer:
             if total == 0:
                 continue
 
-            off_pct = counts.get(ACT_OFF, 0) / total
-            is_candidate = tid in env.candidate_tls_ids
-            is_existing = tid in env.existing_tls_ids
-
-            # Determine color and shape
-            if is_candidate:
-                if off_pct < 0.4:
-                    color = CLR_ADD
-                    n_add += 1
-                    label = "ADD"
-                else:
-                    color = CLR_OFF
-                    n_off += 1
-                    label = "OFF"
-            elif is_existing:
-                if off_pct > 0.6:
-                    color = CLR_REMOVE
-                    n_remove += 1
-                    label = "REMOVE"
-                else:
-                    color = CLR_KEEP
-                    n_keep += 1
-                    label = "KEEP"
-            else:
-                color = CLR_KEEP
-                n_keep += 1
-                label = "KEEP"
+            # [Level 2 COMMENTED OUT] TLS candidate/location optimization
+            # All TLS are treated as existing-keep in Level 1
+            color = CLR_KEEP
+            n_keep += 1
+            label = "KEEP"
 
             # Get position
             try:
@@ -404,8 +703,8 @@ class Visualizer:
                     color=color,
                     poiType=f"flowmind_{label.lower()}",
                     layer=10,
-                    width=20 if is_candidate else 15,
-                    height=20 if is_candidate else 15,
+                    width=15,
+                    height=15,
                 )
             except Exception:
                 pass
@@ -417,11 +716,145 @@ class Visualizer:
         self._update_tls_var("candidate_off", str(n_off))
 
 
+# ── Baseline visualizer (no AI, default timing through same env) ──────
+
+class BaselineVisualizer:
+    """Run SUMO-gui with default timing (no AI) through the same env."""
+
+    def __init__(self, net_file, route_file, sumo_cfg,
+                 delta_time=30, sim_length=3600, seed=1000, speed=0.05):
+        self.net_file = net_file
+        self.route_file = route_file
+        self.sumo_cfg = sumo_cfg
+        self.delta_time = delta_time
+        self.sim_length = sim_length
+        self.seed = seed
+        self.speed = speed
+        self._stop = False
+
+    def run(self):
+        self._build_panel()
+        self._sim_thread = threading.Thread(target=self._run_sim, daemon=True)
+        self._sim_thread.start()
+        self.root.mainloop()
+
+    def _build_panel(self):
+        self.root = tk.Tk()
+        self.root.title("FlowMind AI - Baseline (No AI)")
+        self.root.geometry("400x300")
+        self.root.configure(bg=BG)
+        self.root.attributes("-topmost", True)
+
+        tk.Label(self.root, text="Baseline (Default Timing)",
+                 font=("Segoe UI", 14, "bold"), fg=RED, bg=BG
+                 ).pack(padx=10, pady=(10, 5))
+
+        self._status_var = tk.StringVar(value="Starting...")
+        tk.Label(self.root, textvariable=self._status_var,
+                 font=("Segoe UI", 10), fg=FG2, bg=BG).pack()
+
+        mf = tk.LabelFrame(self.root, text=" Live Metrics ",
+                           font=("Segoe UI", 10, "bold"), fg=FG, bg=BG,
+                           padx=10, pady=8)
+        mf.pack(fill=tk.X, padx=10, pady=10)
+
+        self._metrics = {}
+        for i, (key, text) in enumerate([
+            ("sim_time", "Sim Time"), ("vehicles", "Vehicles"),
+            ("avg_wait", "Avg Wait (s)"), ("avg_queue", "Avg Queue"),
+            ("throughput", "Throughput"),
+        ]):
+            tk.Label(mf, text=text + ":", font=("Segoe UI", 9),
+                     fg=FG2, bg=BG, anchor=tk.W).grid(row=i, column=0, sticky=tk.W, pady=2)
+            var = tk.StringVar(value="--")
+            tk.Label(mf, textvariable=var, font=("Consolas", 10, "bold"),
+                     fg=FG, bg=BG, anchor=tk.E, width=14).grid(row=i, column=1, sticky=tk.E, pady=2)
+            self._metrics[key] = var
+
+        tk.Button(self.root, text="Stop & Close", font=("Segoe UI", 10, "bold"),
+                  bg=RED, fg="white", width=18, pady=4,
+                  command=self._on_close).pack(pady=10)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self):
+        self._stop = True
+        time.sleep(0.3)
+        self.root.destroy()
+
+    def _run_sim(self):
+        try:
+            env = SumoTrafficEnv(
+                net_file=self.net_file, route_file=self.route_file,
+                sumo_cfg=self.sumo_cfg, delta_time=self.delta_time,
+                sim_length=self.sim_length, gui=True, seed=self.seed,
+            )
+            env.reset(seed=self.seed)
+
+            try:
+                env._conn.gui.setSchema("View #0", "real world")
+                env._conn.gui.setDelay(50)
+            except Exception:
+                pass
+
+            self._status_var.set("Running baseline (no AI)...")
+            terminated = truncated = False
+
+            while not (terminated or truncated) and not self._stop:
+                # "Do nothing" — keep current phase
+                actions = {}
+                for tid in env.tls_ids:
+                    green_phases = env._green_phases.get(tid, [0])
+                    current = env._current_phases.get(tid, green_phases[0])
+                    action = 0
+                    for ai, gp in enumerate(green_phases):
+                        if gp == current:
+                            action = ai
+                            break
+                    actions[tid] = action
+
+                _, _, terminated, truncated, _ = env.step(actions)
+                metrics = env.get_metrics()
+
+                try:
+                    self.root.after(0, lambda: self._metrics["sim_time"].set(f"{metrics.get('sim_time', 0)}s"))
+                    self.root.after(0, lambda: self._metrics["vehicles"].set(str(metrics.get('total_vehicles', 0))))
+                    self.root.after(0, lambda: self._metrics["avg_wait"].set(f"{metrics.get('avg_wait_time', 0):.1f}"))
+                    self.root.after(0, lambda: self._metrics["avg_queue"].set(f"{metrics.get('avg_queue_length', 0):.1f}"))
+                    self.root.after(0, lambda: self._metrics["throughput"].set(str(metrics.get('throughput', 0))))
+                    self.root.after(0, lambda: self._status_var.set(
+                        f"Step | {metrics.get('sim_time', 0)}s | Veh={metrics.get('total_vehicles', 0)}"))
+                except Exception:
+                    pass
+
+                if self.speed > 0:
+                    time.sleep(self.speed)
+
+            try:
+                self.root.after(0, lambda: self._status_var.set("Done!"))
+            except Exception:
+                pass
+            env.close()
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            try:
+                self.root.after(0, lambda: self._status_var.set(f"Error: {e}"))
+            except Exception:
+                pass
+
+
 # ── CLI ────────────────────────────────────────────────────────────────
 
 def main():
     ap = argparse.ArgumentParser(
         description="FlowMind AI - Visualize trained model in SUMO-gui")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--baseline", action="store_true",
+                      help="Run baseline only (no AI, default timing)")
+    mode.add_argument("--ai", action="store_true",
+                      help="Run AI model only (default)")
+    mode.add_argument("--both", action="store_true",
+                      help="Run both baseline and AI side by side")
     ap.add_argument("--model", default=os.path.join(
         _PROJECT_ROOT, "checkpoints", "best_model.pt"))
     ap.add_argument("--net", default=os.path.join(
@@ -431,13 +864,39 @@ def main():
     ap.add_argument("--cfg", default=os.path.join(
         _PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"))
     ap.add_argument("--hidden", type=int, default=256)
-    ap.add_argument("--delta-time", type=int, default=10)
+    ap.add_argument("--delta-time", type=int, default=30)
     ap.add_argument("--sim-length", type=int, default=3600)
     ap.add_argument("--seed", type=int, default=1000)
     ap.add_argument("--speed", type=float, default=0.05,
                     help="Delay between steps in seconds (0=max speed)")
     args = ap.parse_args()
 
+    common = dict(
+        net_file=args.net, route_file=args.route, sumo_cfg=args.cfg,
+        delta_time=args.delta_time, sim_length=args.sim_length,
+        seed=args.seed, speed=args.speed,
+    )
+
+    if args.baseline:
+        bl = BaselineVisualizer(**common)
+        bl.run()
+        return
+
+    if args.both:
+        if not os.path.isfile(args.model):
+            print(f"Model not found: {args.model}")
+            sys.exit(1)
+
+        # Launch baseline in a separate thread with its own Tk root
+        def run_baseline_window():
+            bl = BaselineVisualizer(**common)
+            bl.run()
+
+        bl_thread = threading.Thread(target=run_baseline_window, daemon=True)
+        bl_thread.start()
+        time.sleep(2)  # let baseline SUMO-gui start first
+
+    # Default: run AI
     if not os.path.isfile(args.model):
         print(f"Model not found: {args.model}")
         print("Train first: python -m src.tools.rl_dashboard")
@@ -445,14 +904,8 @@ def main():
 
     viz = Visualizer(
         model_path=args.model,
-        net_file=args.net,
-        route_file=args.route,
-        sumo_cfg=args.cfg,
+        **common,
         hidden=args.hidden,
-        delta_time=args.delta_time,
-        sim_length=args.sim_length,
-        seed=args.seed,
-        speed=args.speed,
     )
     viz.run()
 

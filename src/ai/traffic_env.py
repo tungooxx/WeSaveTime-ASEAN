@@ -1,17 +1,20 @@
 """
 FlowMind AI - Gymnasium environment for multi-agent traffic signal RL.
 
-Each non-trivial TLS (traffic light system) in the SUMO network is an
-independent agent that shares the same neural network (parameter sharing).
+Each TLS (traffic light system) in the SUMO network is an independent
+agent that shares the same neural network (parameter sharing).
 The environment provides per-TLS observations and per-TLS rewards.
 
-Observation per TLS (fixed 26-dim vector):
-    [queue_0 ... queue_11, wait_0 ... wait_11, phase_ratio, elapsed_ratio]
+Observation per TLS (fixed 39-dim vector):
+    [queue(12), wait(12), density(12), phase_ratio, elapsed, min_green]
 
-Action per TLS:
-    Index 0..6 -> mapped to a green phase of that TLS.
-    Index 7    -> "TLS OFF" (all-green / yield) — the AI can learn that
-                  some intersections work better without signal control.
+Action per TLS (duration-only):
+    Phases auto-cycle in fixed SUMO order — the AI only picks how long
+    each phase lasts.  Like real Vietnamese signals with countdown displays,
+    the phase order is predictable and the duration is committed upfront.
+
+    discrete mode: index 0..N-1 → N duration levels from min to max green
+    continuous mode: float 0.0-1.0 → mapped to [min_green, max_green]
 """
 
 from __future__ import annotations
@@ -25,30 +28,37 @@ import numpy as np
 import traci
 
 from ..simulation.tls_metadata import TLSMetadata
-from ..simulation.events import EventManager, make_event, EVENT_TYPES
+# [Level 2 REMOVED] from ..simulation.events import EventManager, make_event, EVENT_TYPES
 from .reward import compute_tls_reward
 
 # ── Constants ─────────────────────────────────────────────────────────
 MAX_INCOMING_EDGES = 12     # pad/truncate incoming edges to this size
-MAX_GREEN_PHASES = 7        # actions 0-6: choose a green phase
-ACT_OFF = 7                 # action 7: turn TLS off (all-green / yield)
-MIN_GREEN_STEPS = 5         # minimum green time before allowing phase change
+MAX_GREEN_PHASES = 7        # phases 0-6
+DEFAULT_DURATION_LEVELS = 7  # default number of discrete duration levels
+ACT_OFF = -1                 # OFF action DISABLED
+MIN_GREEN_STEPS = 60         # fallback minimum green (30s real @ step_length=0.5)
+
+# Action mode: "discrete" or "continuous"
+# discrete: N levels evenly spread between min and max green (ACT_DIM = N)
+# continuous: single float 0.0-1.0 mapped to min-max range (ACT_DIM = 1)
+ACTION_MODE = "discrete"     # default, overridden per-env
 
 # Observation layout per TLS (fixed size for parameter sharing):
 #   [0..11]   queue per edge          (12)
 #   [12..23]  wait per edge           (12)
 #   [24..35]  lane density per edge   (12)
-#   [36..47]  edge blocked by event   (12)  ← NEW: 1.0 if event active on this edge
-#   [48]      current phase ratio     (1)
-#   [49]      elapsed time ratio      (1)
-#   [50]      min_green satisfied     (1)
-#   [51]      num active events       (1)   ← NEW: how many events near this TLS
-OBS_DIM = MAX_INCOMING_EDGES * 4 + 4   # 52
+#   [36]      current phase ratio     (1)
+#   [37]      elapsed time ratio      (1)
+#   [38]      min_green satisfied     (1)
+OBS_DIM = MAX_INCOMING_EDGES * 3 + 3   # 39 (Level 1: no pressure, no events)
 OLD_OBS_DIM = MAX_INCOMING_EDGES * 2 + 2  # 26 (v1 layout)
-ACT_DIM = MAX_GREEN_PHASES + 1         # 8 (7 phases + 1 off)
+# Duration-only action space (phases auto-cycle):
+# discrete mode: ACT_DIM = num_duration_levels (default 7)
+# continuous mode: ACT_DIM = 1 (single float)
+ACT_DIM = DEFAULT_DURATION_LEVELS  # overridden by env __init__
 
 
-V2_OBS_DIM = MAX_INCOMING_EDGES * 3 + 3  # 39 (v2 layout without event features)
+V2_OBS_DIM = MAX_INCOMING_EDGES * 3 + 3  # 39 (same as OBS_DIM now)
 
 
 def remap_obs_for_old_model(obs_new: np.ndarray, target_dim: int = OLD_OBS_DIM
@@ -57,24 +67,17 @@ def remap_obs_for_old_model(obs_new: np.ndarray, target_dim: int = OLD_OBS_DIM
 
     Supported target dims:
       26 (v1): [queue(12), wait(12), phase_ratio, elapsed]
-      39 (v2): [queue(12), wait(12), density(12), phase_ratio, elapsed, min_green]
+      39 (current): [queue(12), wait(12), density(12), phase_ratio, elapsed, min_green]
     """
     if target_dim == OLD_OBS_DIM:  # 26
         obs = np.zeros(OLD_OBS_DIM, dtype=np.float32)
         obs[:12] = obs_new[:12]                             # queue
         obs[12:24] = obs_new[12:24]                         # wait
-        obs[24] = obs_new[MAX_INCOMING_EDGES * 4]           # phase_ratio (slot 48)
-        obs[25] = obs_new[MAX_INCOMING_EDGES * 4 + 1]       # elapsed (slot 49)
+        obs[24] = obs_new[MAX_INCOMING_EDGES * 3]           # phase_ratio (slot 36)
+        obs[25] = obs_new[MAX_INCOMING_EDGES * 3 + 1]       # elapsed (slot 37)
         return obs
-    elif target_dim == V2_OBS_DIM:  # 39
-        obs = np.zeros(V2_OBS_DIM, dtype=np.float32)
-        obs[:12] = obs_new[:12]                             # queue
-        obs[12:24] = obs_new[12:24]                         # wait
-        obs[24:36] = obs_new[24:36]                         # density
-        obs[36] = obs_new[MAX_INCOMING_EDGES * 4]           # phase_ratio
-        obs[37] = obs_new[MAX_INCOMING_EDGES * 4 + 1]       # elapsed
-        obs[38] = obs_new[MAX_INCOMING_EDGES * 4 + 2]       # min_green
-        return obs
+    elif target_dim == V2_OBS_DIM:  # 39 (same as current OBS_DIM)
+        return obs_new.copy()
     else:
         return obs_new[:target_dim]
 
@@ -89,20 +92,20 @@ class SumoTrafficEnv(gym.Env):
         net_file: str,
         route_file: str,
         sumo_cfg: Optional[str] = None,
-        delta_time: int = 10,
-        sim_length: int = 3600,
+        delta_time: int = 30,
+        sim_length: int = 1800,  # sim steps (= 900 real seconds at step_length=0.5)
         gui: bool = False,
         seed: int = 42,
         min_green_phases: int = 2,
         min_incoming: int = 2,
         yellow_time: int = 3,
-        collision_penalty: float = 5.0,
-        ebrake_penalty: float = 0.5,
-        random_events: bool = True,
-        max_concurrent_events: int = 2,
-        event_probability: float = 0.01,
+        allred_time: int = 6,  # 3 real seconds at step_length=0.5
+        action_mode: str = "discrete",  # "discrete" or "continuous"
+        num_duration_levels: int = DEFAULT_DURATION_LEVELS,  # for discrete mode
     ) -> None:
         super().__init__()
+        self.action_mode = action_mode
+        self.num_duration_levels = num_duration_levels
 
         self.net_file = os.path.abspath(net_file)
         self.route_file = os.path.abspath(route_file)
@@ -112,14 +115,12 @@ class SumoTrafficEnv(gym.Env):
         self.gui = gui
         self.seed_val = seed
         self.yellow_time = yellow_time
-        self.collision_penalty = collision_penalty
-        self.ebrake_penalty = ebrake_penalty
+        self.allred_time = allred_time
+        # [Level 1] Pure timing optimization
 
-        # ── TLS discovery ────────────────────────────────────────────
+        # ── TLS discovery (ALL TLS are AI-controlled) ──────────────
         self._tls_meta = TLSMetadata(self.net_file)
-        self._tls_list = self._tls_meta.get_non_trivial(
-            min_green_phases, min_incoming
-        )
+        self._tls_list = self._tls_meta.all_tls
         self.tls_ids: list[str] = [t.id for t in self._tls_list]
         self._tls_map = {t.id: t for t in self._tls_list}
 
@@ -147,34 +148,130 @@ class SumoTrafficEnv(gym.Env):
             gp = tls.green_phase_indices()
             self._green_phases[tls.id] = gp if gp else [0]
 
-        # ── Candidate TLS tracking ─────────────────────────────────
-        self.candidate_tls_ids: set[str] = set()
-        self.existing_tls_ids: set[str] = set()
-        self._load_candidate_info()
+        # ── Per-TLS timing from engineering formulas ───────────────
+        self._yellow_steps: dict[str, int] = {}
+        self._allred_steps: dict[str, int] = {}
+        self._min_green_steps: dict[str, int] = {}
+        self._max_green_steps: dict[str, int] = {}
+        for tls in self._tls_list:
+            g = tls.geometry
+            if g:
+                self._yellow_steps[tls.id] = g.yellow_steps
+                self._allred_steps[tls.id] = g.allred_steps
+                self._min_green_steps[tls.id] = g.min_green_steps
+                self._max_green_steps[tls.id] = g.max_green_steps
+            else:
+                self._yellow_steps[tls.id] = yellow_time
+                self._allred_steps[tls.id] = allred_time
+                self._min_green_steps[tls.id] = 30
+                self._max_green_steps[tls.id] = 90
 
-        # Per-TLS action statistics (accumulated across episodes)
-        self.action_stats: dict[str, dict[int, int]] = {
-            tid: {} for tid in self.tls_ids
+            # For single-phase TLS (ped crossings), allow max_green up to
+            # 150% of their SUMO default — the engineering cap is too low
+            if tls.num_green_phases <= 1 and tls.phases:
+                default_green_steps = max(
+                    int(p.duration / 0.5)
+                    for p in tls.phases
+                    if any(c in ('G', 'g') for c in p.state)
+                ) if tls.phases else 60
+                self._max_green_steps[tls.id] = max(
+                    self._max_green_steps[tls.id],
+                    int(default_green_steps * 1.5)
+                )
+
+        # ── Per-TLS duration levels (in sim steps) ────────────────────
+        # N levels evenly spread from min_green to max_green for each TLS.
+        self._duration_levels: dict[str, list[int]] = {}
+        for tid in self.tls_ids:
+            mn = self._min_green_steps[tid]
+            mx = self._max_green_steps[tid]
+
+            # Read SUMO's default green duration from the TLS program
+            tls_info = self._tls_map.get(tid)
+            if tls_info and tls_info.phases:
+                default_dur = max(
+                    int(p.duration / 0.5)
+                    for p in tls_info.phases
+                    if any(c in ('G', 'g') for c in p.state)
+                ) if tls_info.phases else 60
+            else:
+                default_dur = 60
+
+            n = self.num_duration_levels
+            if n <= 1:
+                self._duration_levels[tid] = [max(mn, min(mx, default_dur))]
+            elif n == 2:
+                self._duration_levels[tid] = [mn, mx]
+            else:
+                levels = []
+                for i in range(n):
+                    t = i / (n - 1)
+                    val = int(mn + t * (mx - mn))
+                    levels.append(val)
+                self._duration_levels[tid] = levels
+
+        # ── Reward importance weights ─────────────────────────────────
+        # Weight by complexity: multi-phase intersections matter more
+        # than single-phase pedestrian crossings.
+        raw_weights = {}
+        for tls in self._tls_list:
+            gp = tls.num_green_phases
+            ie = max(len(tls.incoming_edges), 1)
+            if gp >= 2:
+                w = gp * ie
+            else:
+                total_lanes = sum(
+                    self._net.getEdge(eid).getLaneNumber()
+                    for eid in tls.incoming_edges
+                    if not eid.startswith(":")
+                ) if tls.incoming_edges else 1
+                w = total_lanes * 0.3
+            raw_weights[tls.id] = float(w)
+        mean_w = sum(raw_weights.values()) / max(len(raw_weights), 1)
+        self._reward_weight: dict[str, float] = {
+            tid: w / max(mean_w, 0.01) for tid, w in raw_weights.items()
         }
+
+        # Precompute avg transition for reward normalization
+        transitions = [
+            self._yellow_steps[t] + self._allred_steps[t] for t in self.tls_ids
+        ]
+        self._avg_transition = sum(transitions) / max(len(transitions), 1)
+
+        # [TLS CANDIDATE COMMENTED OUT] ── Candidate TLS tracking ──
+        # self.candidate_tls_ids: set[str] = set()
+        # self.existing_tls_ids: set[str] = set()
+        # self._load_candidate_info()
+
+        # [TLS CANDIDATE COMMENTED OUT] Per-TLS action statistics
+        # self.action_stats: dict[str, dict[int, int]] = {
+        #     tid: {} for tid in self.tls_ids
+        # }
 
         # ── Gym spaces (per-agent, shared definition) ────────────────
         self.observation_space = gym.spaces.Box(
             low=0.0, high=1.0, shape=(OBS_DIM,), dtype=np.float32
         )
-        self.action_space = gym.spaces.Discrete(ACT_DIM)
+        if self.action_mode == "continuous":
+            self.act_dim = 1
+            self.action_space = gym.spaces.Box(low=0.0, high=1.0, shape=(1,))
+        else:
+            self.act_dim = self.num_duration_levels
+            self.action_space = gym.spaces.Discrete(self.act_dim)
 
-        # ── Random event config ────────────────────────────────────
-        self.random_events = random_events
-        self.max_concurrent_events = max_concurrent_events
-        self.event_probability = event_probability
-        self._event_manager = None
+        # [Level 2 REMOVED] ── Random event config ──────────────────
+        # self.random_events = random_events
+        # self.max_concurrent_events = max_concurrent_events
+        # self.event_probability = event_probability
+        # self._event_manager = None
         self._active_event_log: list[str] = []
-
-        # Build list of non-internal edges for random event placement
-        self._all_edges: list[str] = [
-            e.getID() for e in self._net.getEdges()
-            if not e.getID().startswith(":") and e.getLaneNumber() >= 2
-        ]
+        self.baseline_active: bool = True  # set False during curriculum Phase 1-2
+        #
+        # # Build list of non-internal edges for random event placement
+        # self._all_edges: list[str] = [
+        #     e.getID() for e in self._net.getEdges()
+        #     if not e.getID().startswith(":") and e.getLaneNumber() >= 2
+        # ]
 
         # ── Runtime state ────────────────────────────────────────────
         self._conn: Optional[traci.Connection] = None
@@ -187,6 +284,10 @@ class SumoTrafficEnv(gym.Env):
         self._prev_throughput: dict[str, int] = {}
         self._current_phases: dict[str, int] = {}
         self._phase_start_step: dict[str, int] = {}
+        self._green_start_step: dict[str, int] = {}  # when actual green began
+        self._countdown: dict[str, int] = {}  # Vietnamese countdown timer (sim steps remaining)
+        self._committed_green: dict[str, int] = {}  # initial countdown when phase changed (for logging)
+        self._cycle_index: dict[str, int] = {}  # index into green_phases for auto-cycling
 
     # ── Properties ────────────────────────────────────────────────────
 
@@ -195,177 +296,56 @@ class SumoTrafficEnv(gym.Env):
         return len(self.tls_ids)
 
     def get_valid_actions(self, tls_id: str) -> list[int]:
-        """Valid action indices for *tls_id* (0..N-1 = green phases, ACT_OFF = TLS off)."""
-        phase_actions = list(range(len(self._green_phases.get(tls_id, [0]))))
-        return phase_actions + [ACT_OFF]
+        """Valid action indices for discrete mode."""
+        if self.action_mode == "continuous":
+            return [0]  # continuous has 1 "action" (the float)
+        return list(range(self.num_duration_levels))
 
-    # ── Candidate TLS helpers ──────────────────────────────────────
+    def decode_duration_steps(self, tls_id: str, action) -> int:
+        """Convert action to duration in sim steps.
 
-    def _load_candidate_info(self) -> None:
-        """Load candidate_tls.json to identify which TLS are candidates vs existing."""
-        import json
-        candidate_file = os.path.join(
-            os.path.dirname(self.net_file), "candidate_tls.json")
-        if os.path.isfile(candidate_file):
-            with open(candidate_file) as f:
-                data = json.load(f)
-            existing = set(data.get("existing_tls", []))
-            candidate_ids = {c["id"] for c in data.get("candidates", [])}
+        Discrete mode: action is an int index into duration_levels.
+        Continuous mode: action is a float 0.0-1.0 mapped to min-max range.
+        """
+        levels = self._duration_levels.get(tls_id, [60])
+        mn = self._min_green_steps.get(tls_id, 30)
+        mx = self._max_green_steps.get(tls_id, 90)
+
+        if self.action_mode == "continuous":
+            t = float(action) if not hasattr(action, '__len__') else float(action[0])
+            t = max(0.0, min(1.0, t))
+            return int(mn + t * (mx - mn))
         else:
-            existing = set(self.tls_ids)
-            candidate_ids = set()
+            idx = min(int(action), len(levels) - 1)
+            return levels[idx]
 
-        self.existing_tls_ids = {tid for tid in self.tls_ids if tid in existing}
-        self.candidate_tls_ids = {tid for tid in self.tls_ids if tid in candidate_ids}
-        # TLS added by netconvert may get a different ID — catch stragglers
-        for tid in self.tls_ids:
-            if tid not in self.existing_tls_ids and tid not in self.candidate_tls_ids:
-                self.candidate_tls_ids.add(tid)
+    # [TLS CANDIDATE COMMENTED OUT] ── Candidate TLS helpers ──────
+    # All candidate TLS tracking, action stats, snapshots, details,
+    # and recommendations have been commented out.
+    # These features determine whether to ADD new or REMOVE existing
+    # traffic lights. Level 1 only optimizes timing of current TLS.
+
+    # def _load_candidate_info(self) -> None: ...
+    # def record_actions(self, actions) -> None: ...
+    # def get_tls_snapshot(self) -> dict: ...
+    # def get_tls_details(self) -> list[dict]: ...
+    # def get_recommendations(self) -> dict: ...
 
     def record_actions(self, actions: dict[str, int]) -> None:
-        """Track per-TLS action counts for recommendation analysis."""
-        for tid, act in actions.items():
-            self.action_stats[tid][act] = self.action_stats[tid].get(act, 0) + 1
+        """Stub — TLS candidate tracking disabled."""
+        pass
 
     def get_tls_snapshot(self) -> dict:
-        """Return a lightweight snapshot of TLS add/remove decisions so far.
-
-        Returns dict with:
-            n_add: candidate TLS the agent keeps active (OFF < 40%)
-            n_remove: existing TLS the agent wants OFF (OFF > 60%)
-            n_candidates: total candidate TLS
-            n_existing: total existing TLS
-        """
-        n_add = n_remove = 0
-        for tid in self.tls_ids:
-            stats = self.action_stats.get(tid, {})
-            total = sum(stats.values())
-            if total == 0:
-                continue
-            off_pct = stats.get(ACT_OFF, 0) / total
-            if tid in self.candidate_tls_ids and off_pct < 0.4:
-                n_add += 1
-            elif tid in self.existing_tls_ids and off_pct > 0.6:
-                n_remove += 1
-        return {
-            "n_add": n_add,
-            "n_remove": n_remove,
-            "n_candidates": len(self.candidate_tls_ids),
-            "n_existing": len(self.existing_tls_ids),
-        }
+        """Stub — TLS candidate tracking disabled."""
+        return {"n_add": 0, "n_remove": 0, "n_candidates": 0, "n_existing": 0}
 
     def get_tls_details(self) -> list[dict]:
-        """Return per-TLS detail snapshot for the current episode.
-
-        Each entry has: tls_id, type (existing/candidate), off_pct,
-        top_phase, wait, queue, action_counts, decision.
-        """
-        details = []
-        for tid in self.tls_ids:
-            stats = self.action_stats.get(tid, {})
-            total = sum(stats.values())
-            if total == 0:
-                continue
-
-            off_pct = stats.get(ACT_OFF, 0) / total * 100
-            is_candidate = tid in self.candidate_tls_ids
-
-            # Get current wait/queue for this TLS
-            tls_info = self._tls_map.get(tid)
-            wait = 0.0
-            queue = 0
-            if tls_info and self._conn:
-                for eid in tls_info.incoming_edges:
-                    try:
-                        wait += self._conn.edge.getWaitingTime(eid)
-                        queue += self._conn.edge.getLastStepHaltingNumber(eid)
-                    except Exception:
-                        pass
-
-            # Get road name from first incoming edge
-            road_name = tid
-            if tls_info and tls_info.incoming_edges:
-                try:
-                    edge = self._net.getEdge(tls_info.incoming_edges[0])
-                    name = edge.getName()
-                    if name:
-                        road_name = name
-                except Exception:
-                    pass
-
-            # Top phase (most chosen non-OFF action)
-            phase_counts = {k: v for k, v in stats.items() if k != ACT_OFF}
-            top_phase = max(phase_counts, key=phase_counts.get) if phase_counts else -1
-
-            # Decision label
-            if is_candidate:
-                decision = "ADD" if off_pct < 40 else "NO TLS"
-            else:
-                decision = "REMOVE" if off_pct > 60 else "KEEP"
-
-            details.append({
-                "tls_id": tid,
-                "road_name": road_name,
-                "type": "candidate" if is_candidate else "existing",
-                "decision": decision,
-                "off_pct": round(off_pct, 1),
-                "top_phase": top_phase,
-                "wait": round(wait, 1),
-                "queue": queue,
-                "actions": dict(stats),
-                "n_incoming": len(tls_info.incoming_edges) if tls_info else 0,
-            })
-
-        details.sort(key=lambda d: d["off_pct"])
-        return details
+        """Stub — TLS candidate tracking disabled."""
+        return []
 
     def get_recommendations(self) -> dict:
-        """Analyze action statistics to generate TLS recommendations.
-
-        Returns dict with keys:
-            - remove: list of existing TLS the agent wants OFF (>60% OFF actions)
-            - add: list of candidate TLS the agent wants active (<40% OFF actions)
-            - keep_off: list of candidate TLS the agent keeps OFF
-            - timing: dict of tls_id -> phase distribution for all active TLS
-        """
-        remove = []
-        add = []
-        keep_off = []
-        timing = {}
-
-        for tid in self.tls_ids:
-            stats = self.action_stats.get(tid, {})
-            total = sum(stats.values())
-            if total == 0:
-                continue
-
-            off_pct = stats.get(ACT_OFF, 0) / total
-
-            if tid in self.candidate_tls_ids:
-                if off_pct < 0.4:
-                    add.append({"id": tid, "off_pct": round(off_pct * 100, 1),
-                                "action_dist": stats})
-                else:
-                    keep_off.append({"id": tid, "off_pct": round(off_pct * 100, 1)})
-            elif tid in self.existing_tls_ids:
-                if off_pct > 0.6:
-                    remove.append({"id": tid, "off_pct": round(off_pct * 100, 1),
-                                   "action_dist": stats})
-
-            # Phase timing for all TLS
-            timing[tid] = {
-                "action_dist": {str(k): v for k, v in stats.items()},
-                "total_actions": total,
-                "off_pct": round(off_pct * 100, 1),
-                "is_candidate": tid in self.candidate_tls_ids,
-            }
-
-        return {
-            "remove": remove,
-            "add": add,
-            "keep_off": keep_off,
-            "timing": timing,
-        }
+        """Stub — TLS candidate tracking disabled."""
+        return {"remove": [], "add": [], "keep_off": [], "timing": {}}
 
     # ── SUMO lifecycle ────────────────────────────────────────────────
 
@@ -375,11 +355,30 @@ class SumoTrafficEnv(gym.Env):
         if found:
             return found
         sumo_home = os.environ.get("SUMO_HOME", "")
-        if sumo_home:
-            p = os.path.join(sumo_home, "bin", name)
+        # Auto-detect common Windows SUMO install paths
+        search_paths = [sumo_home] if sumo_home else []
+        search_paths += [
+            r"C:\Program Files\Eclipse\Sumo",
+            r"C:\Program Files (x86)\Eclipse\Sumo",
+            r"C:\Sumo",
+        ]
+        for base in search_paths:
+            if not base:
+                continue
+            p = os.path.join(base, "bin", name)
             if os.path.isfile(p) or os.path.isfile(p + ".exe"):
+                os.environ["SUMO_HOME"] = base  # set for traci/sumolib
                 return p
         raise FileNotFoundError(f"Cannot find '{name}'. Install SUMO or set SUMO_HOME.")
+
+    def _sim_step_and_track(self) -> None:
+        """Advance one sim step and accumulate throughput count."""
+        self._conn.simulationStep()
+        self._sim_step += 1
+        try:
+            self._total_throughput += self._conn.simulation.getArrivedNumber()
+        except Exception:
+            pass
 
     def _start_sumo(self) -> None:
         # Close stale connection
@@ -391,7 +390,8 @@ class SumoTrafficEnv(gym.Env):
         binary = self._find_binary()
 
         if self.sumo_cfg:
-            cmd = [binary, "-c", self.sumo_cfg]
+            cmd = [binary, "-c", self.sumo_cfg,
+                   "-r", self.route_file]  # override route from cfg
         else:
             cmd = [binary, "-n", self.net_file, "-r", self.route_file]
 
@@ -401,6 +401,7 @@ class SumoTrafficEnv(gym.Env):
             "--no-warnings", "true",
             "--time-to-teleport", "300",
             "--waiting-time-memory", "1000",
+            "--collision.action", "none",
             "--error-log", os.devnull,
         ]
 
@@ -423,10 +424,15 @@ class SumoTrafficEnv(gym.Env):
 
         self._start_sumo()
         self._sim_step = 0
+        self._total_throughput = 0
         self._prev_waiting.clear()
         self._prev_throughput.clear()
         self._current_phases.clear()
         self._phase_start_step.clear()
+        self._green_start_step.clear()
+        self._countdown.clear()
+        self._committed_green.clear()
+        self._cycle_index.clear()
 
         # Initialise per-TLS tracking and validate green phases at runtime
         for tls_id in self.tls_ids:
@@ -437,6 +443,8 @@ class SumoTrafficEnv(gym.Env):
             except traci.TraCIException:
                 self._current_phases[tls_id] = 0
             self._phase_start_step[tls_id] = 0
+            self._countdown[tls_id] = 0  # all TLS free at start
+            self._cycle_index[tls_id] = 0  # start at first green phase
 
             # Re-validate green phase indices against SUMO's runtime program
             try:
@@ -449,115 +457,159 @@ class SumoTrafficEnv(gym.Env):
             except traci.TraCIException:
                 self._green_phases[tls_id] = [0]
 
-        # ── Event manager ──────────────────────────────────────────
+        # [Level 2 REMOVED] ── Event manager ──────────────────────
         self._active_event_log = []
-        self._rng = np.random.RandomState(self.seed_val)
-        if self.random_events and self._rng.random() > 0.4:
-            # 60% of episodes have events, 40% are event-free
-            self._event_manager = EventManager(self._conn, self.net_file)
-            self._maybe_inject_events()
-        else:
-            self._event_manager = None
+        # self._rng = np.random.RandomState(self.seed_val)
+        # if self.random_events and self._rng.random() > 0.4:
+        #     self._event_manager = EventManager(self._conn, self.net_file)
+        #     self._maybe_inject_events()
+        # else:
+        #     self._event_manager = None
 
         # Warm-up so some vehicles enter the network
         for _ in range(self.delta_time):
-            self._conn.simulationStep()
-            self._sim_step += 1
-            if self._event_manager:
-                msgs = self._event_manager.tick(float(self._sim_step))
-                self._active_event_log.extend(msgs)
+            self._sim_step_and_track()
+
+        # All TLS are AI-controlled — no forced green needed
 
         obs = self._get_observations()
         return obs, {"step": self._sim_step, "sim_time": self._sim_step}
 
     def step(
-        self, actions: dict[str, int]
+        self, actions: dict  # dict[str, int] for discrete, dict[str, float] for continuous
     ) -> tuple[dict[str, np.ndarray], dict[str, float], bool, bool, dict]:
-        """Apply phase actions, advance SUMO by *delta_time* seconds, return
-        (obs, rewards, terminated, truncated, info)."""
+        """Apply duration actions with Vietnamese countdown timer model.
 
-        # ── 1. Resolve target phases and cache state strings ─────────
-        # We use setRedYellowGreenState exclusively (not setPhase) because
-        # setRedYellowGreenState switches the TLS to a custom 1-phase program,
-        # making a subsequent setPhase fail with "not in allowed range".
-        #
-        # Action ACT_OFF = "turn off TLS" → set all links to green (G).
-        targets: dict[str, tuple[int, str]] = {}  # tls_id -> (phase_idx, state_str)
-        off_tls: set[str] = set()                  # TLS the AI wants turned off
+        Phases auto-cycle in fixed SUMO order -- the AI only picks how long
+        each phase lasts (SHORT / MEDIUM / LONG).  Like real Vietnamese
+        signals with countdown displays, the phase order is predictable
+        and the duration is committed upfront.
+
+        When a countdown expires, the next phase in cycle starts automatically.
+        The AI then picks a duration for that new phase.
+
+        Advances SUMO by *delta_time* sim steps per call."""
+
+        # ── 1. Auto-cycle phases + apply AI duration ──────────────────
+        targets: dict[str, tuple[int, str]] = {}
+        changed_tls: list[str] = []
+        chosen_duration: dict[str, int] = {}
 
         for tls_id, action_idx in actions.items():
-            # ── Min-green enforcement (from sumo-rl) ──────────────
-            # If current phase hasn't been green long enough, keep it
-            elapsed = self._sim_step - self._phase_start_step.get(tls_id, 0)
             current_phase = self._current_phases.get(tls_id, 0)
-            if elapsed < MIN_GREEN_STEPS and action_idx != ACT_OFF:
-                # Force keep current phase
-                green_phases = self._green_phases.get(tls_id, [0])
-                for ai, gp in enumerate(green_phases):
-                    if gp == current_phase:
-                        action_idx = ai
-                        break
 
-            if action_idx == ACT_OFF:
-                # "Off" = all-green (every link gets 'G')
-                off_tls.add(tls_id)
-                try:
-                    cur = self._conn.trafficlight.getRedYellowGreenState(tls_id)
-                    targets[tls_id] = (-1, "G" * len(cur))
-                except traci.TraCIException:
-                    targets[tls_id] = (-1, "")
+            # If countdown active, TLS is locked -- skip
+            if self._countdown.get(tls_id, 0) > 0:
+                continue
+
+            # Countdown expired -> auto-advance to next green phase in cycle
+            green_phases = self._green_phases.get(tls_id, [0])
+            ci = self._cycle_index.get(tls_id, 0)
+            next_ci = (ci + 1) % len(green_phases)
+            target_phase = green_phases[next_ci]
+            self._cycle_index[tls_id] = next_ci
+
+            # Decode AI action -> duration in sim steps
+            chosen_duration[tls_id] = self.decode_duration_steps(tls_id, action_idx)
+
+            # Set target phase state
+            tls_info = self._tls_map.get(tls_id)
+            if tls_info and target_phase < len(tls_info.phases):
+                targets[tls_id] = (target_phase, tls_info.phases[target_phase].state)
             else:
-                green_phases = self._green_phases.get(tls_id, [0])
-                target_phase = (
-                    green_phases[action_idx]
-                    if action_idx < len(green_phases)
-                    else green_phases[0]
-                )
-                tls_info = self._tls_map.get(tls_id)
-                if tls_info and target_phase < len(tls_info.phases):
-                    targets[tls_id] = (target_phase, tls_info.phases[target_phase].state)
-                else:
-                    targets[tls_id] = (0, "")
+                targets[tls_id] = (0, "")
 
-        # ── 2. Apply yellow where phase changes ──────────────────────
-        for tls_id, (target_phase, _) in targets.items():
-            current_phase = self._current_phases.get(tls_id, 0)
+            # Every countdown expiry triggers a phase change
             if target_phase != current_phase:
-                if tls_id not in off_tls:
-                    self._set_yellow(tls_id, current_phase)
-                self._current_phases[tls_id] = target_phase
-                self._phase_start_step[tls_id] = self._sim_step + self.yellow_time
+                changed_tls.append(tls_id)
 
-        # ── 3. Advance yellow period ─────────────────────────────────
-        for _ in range(self.yellow_time):
-            self._conn.simulationStep()
-            self._sim_step += 1
+        # ── 2. Apply transitions for changed TLS ────────────────────
+        tls_transition: dict[str, dict] = {}
+        for tls_id in changed_tls:
+            self._set_yellow(tls_id, self._current_phases.get(tls_id, 0))
+            target_phase = targets[tls_id][0]
+            self._current_phases[tls_id] = target_phase
+            yw = self._yellow_steps.get(tls_id, self.yellow_time)
+            ar = self._allred_steps.get(tls_id, self.allred_time)
+            tls_transition[tls_id] = {
+                "yellow_rem": yw, "allred_rem": ar, "done": False,
+            }
+            # Set countdown = AI's chosen duration
+            dur = chosen_duration.get(tls_id, self._min_green_steps.get(tls_id, 30))
+            self._countdown[tls_id] = dur
+            self._committed_green[tls_id] = dur
 
-        # ── 4. Set target green states (using state strings, not setPhase) ─
+        # ── 3. Tick-by-tick transition (per-TLS yellow -> allred -> green)
+        max_transition = max(
+            (s["yellow_rem"] + s["allred_rem"] for s in tls_transition.values()),
+            default=0,
+        )
+
+        for _tick in range(max_transition):
+            for tid, st in tls_transition.items():
+                if st["done"]:
+                    continue
+                if st["yellow_rem"] > 0:
+                    st["yellow_rem"] -= 1
+                    if st["yellow_rem"] == 0:
+                        try:
+                            cur = self._conn.trafficlight.getRedYellowGreenState(tid)
+                            self._conn.trafficlight.setRedYellowGreenState(
+                                tid, "r" * len(cur))
+                        except traci.TraCIException:
+                            pass
+                elif st["allred_rem"] > 0:
+                    st["allred_rem"] -= 1
+                    if st["allred_rem"] == 0:
+                        state_str = targets[tid][1]
+                        if state_str:
+                            try:
+                                self._conn.trafficlight.setRedYellowGreenState(
+                                    tid, state_str)
+                            except traci.TraCIException:
+                                pass
+                        self._green_start_step[tid] = self._sim_step
+                        self._phase_start_step[tid] = self._sim_step
+                        st["done"] = True
+            self._sim_step_and_track()
+
+        # ── 4. Finalize green states ─────────────────────────────────
+        for tid, st in tls_transition.items():
+            if not st["done"]:
+                state_str = targets[tid][1]
+                if state_str:
+                    try:
+                        self._conn.trafficlight.setRedYellowGreenState(
+                            tid, state_str)
+                    except traci.TraCIException:
+                        pass
+                self._green_start_step[tid] = self._sim_step
+                self._phase_start_step[tid] = self._sim_step
+
         for tls_id, (_, state_str) in targets.items():
-            if state_str:
-                try:
-                    self._conn.trafficlight.setRedYellowGreenState(tls_id, state_str)
-                except traci.TraCIException:
-                    pass
+            if tls_id not in tls_transition:
+                if state_str:
+                    try:
+                        self._conn.trafficlight.setRedYellowGreenState(
+                            tls_id, state_str)
+                    except traci.TraCIException:
+                        pass
+                if tls_id not in self._green_start_step:
+                    self._green_start_step[tls_id] = self._sim_step
 
-        # ── 5. Advance remaining green time ──────────────────────────
-        green_time = max(self.delta_time - self.yellow_time, 1)
+        # ── 5. Advance green time + decrement countdowns ─────────────
+        green_time = max(self.delta_time - max_transition, 1)
         for _ in range(green_time):
-            self._conn.simulationStep()
-            self._sim_step += 1
-            # Tick events each sim step
-            if self._event_manager:
-                msgs = self._event_manager.tick(float(self._sim_step))
-                self._active_event_log.extend(msgs)
+            self._sim_step_and_track()
 
-        # ── 5b. Maybe inject new random events ─────────────────────
-        if self._event_manager:
-            self._maybe_inject_events()
+        # Decrement countdowns by full delta_time (total sim steps this call)
+        for tid in self.tls_ids:
+            if self._countdown.get(tid, 0) > 0:
+                self._countdown[tid] = max(0, self._countdown[tid] - self.delta_time)
 
         # ── 6. Observe & reward ───────────────────────────────────────
         obs = self._get_observations()
-        rewards = self._compute_rewards()
+        rewards = self._compute_rewards(changed_tls_set=set(changed_tls))
 
         terminated = self._sim_step >= self.sim_length
         truncated = False
@@ -582,6 +634,59 @@ class SumoTrafficEnv(gym.Env):
 
     # ── Yellow helper ─────────────────────────────────────────────────
 
+    def _set_trivial_tls_green(self) -> None:
+        """Force all non-AI trivial TLS to permanent green.
+
+        Targets two categories:
+        1. Single-phase TLS (pedestrian crossings, median breaks) — only
+           1 green phase, cycling serves no purpose. These are common on
+           arterials like Nguyễn Văn Linh (25+ trivial TLS).
+        2. Uniform-phase TLS (roundabout entries) — all phases have the
+           same pattern (GGG/yyy/rrr), no conflicting directions.
+
+        Multi-phase intersections with 2+ distinct green phases and
+        conflicting directions are left on default programs.
+        """
+        try:
+            all_tls_ids = set(self._conn.trafficlight.getIDList())
+        except traci.TraCIException:
+            return
+
+        agent_tls = set(self.tls_ids)
+        count = 0
+        for tid in all_tls_ids - agent_tls:
+            tls_info = self._tls_meta.get(tid)
+            if tls_info is None:
+                continue
+
+            # Category 1: Single green phase — always force green
+            if tls_info.num_green_phases <= 1:
+                try:
+                    state = self._conn.trafficlight.getRedYellowGreenState(tid)
+                    self._conn.trafficlight.setRedYellowGreenState(
+                        tid, "G" * len(state))
+                    count += 1
+                except traci.TraCIException:
+                    pass
+                continue
+
+            # Category 2: Multi-phase but all uniform (roundabout entries)
+            is_uniform = True
+            for p in tls_info.phases:
+                has_green = any(c in ('G', 'g') for c in p.state)
+                has_red = any(c in ('r', 'R') for c in p.state)
+                if has_green and has_red:
+                    is_uniform = False
+                    break
+            if is_uniform:
+                try:
+                    state = self._conn.trafficlight.getRedYellowGreenState(tid)
+                    self._conn.trafficlight.setRedYellowGreenState(
+                        tid, "G" * len(state))
+                    count += 1
+                except traci.TraCIException:
+                    pass
+
     def _set_yellow(self, tls_id: str, _current_phase: int) -> None:
         """Turn all current greens to yellow for the transition period."""
         try:
@@ -599,8 +704,8 @@ class SumoTrafficEnv(gym.Env):
     def _obs_for(self, tls_id: str) -> np.ndarray:
         """Build a fixed-size (OBS_DIM,) observation vector for one TLS.
 
-        Layout: [queue(12), wait(12), density(12), event_blocked(12),
-                 phase_ratio, elapsed, min_green, num_events]
+        Layout: [queue(12), wait(12), density(12),
+                 phase_ratio, elapsed, min_green]
         """
         vec = np.zeros(OBS_DIM, dtype=np.float32)
         tls_info = self._tls_map.get(tls_id)
@@ -610,15 +715,15 @@ class SumoTrafficEnv(gym.Env):
         off_q = 0                        # queue slots
         off_w = MAX_INCOMING_EDGES       # wait slots
         off_d = MAX_INCOMING_EDGES * 2   # density slots
-        off_e = MAX_INCOMING_EDGES * 3   # event blocked slots
+        # [Level 2 REMOVED] off_e = MAX_INCOMING_EDGES * 3   # event blocked slots
 
-        # Collect edges affected by active events
-        affected_edges: set[str] = set()
-        n_events = 0
-        if self._event_manager:
-            for evt in self._event_manager.get_active():
-                affected_edges.update(evt.affected_edges)
-                n_events += 1
+        # [Level 2 REMOVED] Collect edges affected by active events
+        # affected_edges: set[str] = set()
+        # n_events = 0
+        # if self._event_manager:
+        #     for evt in self._event_manager.get_active():
+        #         affected_edges.update(evt.affected_edges)
+        #         n_events += 1
 
         for i, edge_id in enumerate(tls_info.incoming_edges[:MAX_INCOMING_EDGES]):
             try:
@@ -632,67 +737,36 @@ class SumoTrafficEnv(gym.Env):
             vec[off_q + i] = min(q / 50.0, 1.0)
             vec[off_w + i] = min(w / 300.0, 1.0)
             vec[off_d + i] = min(density, 1.0)
-            # Event flag: 1.0 if this edge is affected by an active event
-            vec[off_e + i] = 1.0 if edge_id in affected_edges else 0.0
+            # [Level 2 REMOVED] Event flag
+            # vec[off_e + i] = 1.0 if edge_id in affected_edges else 0.0
 
         # Current phase ratio
         cur_phase = self._current_phases.get(tls_id, 0)
         num_phases = max(tls_info.num_phases, 1)
-        vec[MAX_INCOMING_EDGES * 4] = cur_phase / num_phases
+        vec[MAX_INCOMING_EDGES * 3] = cur_phase / num_phases
 
-        # Elapsed time in current phase
-        elapsed = self._sim_step - self._phase_start_step.get(tls_id, 0)
-        vec[MAX_INCOMING_EDGES * 4 + 1] = min(elapsed / 60.0, 1.0)
+        # Elapsed actual green time (per-TLS normalization)
+        green_start = self._green_start_step.get(
+            tls_id, self._phase_start_step.get(tls_id, 0))
+        actual_green_elapsed = self._sim_step - green_start
+        max_g = self._max_green_steps.get(tls_id, 120)
+        vec[MAX_INCOMING_EDGES * 3 + 1] = min(actual_green_elapsed / max_g, 1.0)
 
-        # Min-green satisfied flag
-        vec[MAX_INCOMING_EDGES * 4 + 2] = 1.0 if elapsed >= MIN_GREEN_STEPS else 0.0
+        # Min-green satisfied flag (per-TLS threshold)
+        min_g = self._min_green_steps.get(tls_id, 30)
+        vec[MAX_INCOMING_EDGES * 3 + 2] = 1.0 if actual_green_elapsed >= min_g else 0.0
 
-        # Number of active events (normalized)
-        vec[MAX_INCOMING_EDGES * 4 + 3] = min(n_events / 5.0, 1.0)
+        # [Level 2 REMOVED] Number of active events (normalized)
+        # vec[MAX_INCOMING_EDGES * 4 + 3] = min(n_events / 5.0, 1.0)
 
         return vec
 
     # ── Rewards ───────────────────────────────────────────────────────
 
-    def _compute_rewards(self) -> dict[str, float]:
+    def _compute_rewards(self, changed_tls_set: set[str] | None = None) -> dict[str, float]:
         rewards: dict[str, float] = {}
 
-        # ── Collect collision data (global, then attribute to nearest TLS) ──
-        tls_collisions: dict[str, int] = {tid: 0 for tid in self.tls_ids}
-        tls_ebrakes: dict[str, int] = {tid: 0 for tid in self.tls_ids}
-        try:
-            collisions = self._conn.simulation.getCollisions()
-            for col in collisions:
-                # Attribute collision to the nearest TLS by matching edge
-                lane = getattr(col, "lane", "")
-                edge = lane.rsplit("_", 1)[0] if "_" in lane else lane
-                for tid in self.tls_ids:
-                    tls_info = self._tls_map.get(tid)
-                    if tls_info and edge in tls_info.incoming_edges:
-                        tls_collisions[tid] += 1
-                        break
-        except Exception:
-            pass
-
-        # ── Collect emergency braking (vehicles on incoming edges) ──
-        for tls_id in self.tls_ids:
-            tls_info = self._tls_map.get(tls_id)
-            if tls_info is None:
-                continue
-            ebrakes = 0
-            for edge_id in tls_info.incoming_edges:
-                try:
-                    for vid in self._conn.edge.getLastStepVehicleIDs(edge_id):
-                        try:
-                            # Emergency brake: deceleration > 4.5 m/s^2
-                            accel = self._conn.vehicle.getAcceleration(vid)
-                            if accel < -4.5:
-                                ebrakes += 1
-                        except traci.TraCIException:
-                            pass
-                except traci.TraCIException:
-                    pass
-            tls_ebrakes[tls_id] = ebrakes
+        # [Level 1] Pure timing optimization
 
         # ── Per-TLS reward ──────────────────────────────────────────────
         for tls_id in self.tls_ids:
@@ -731,21 +805,54 @@ class SumoTrafficEnv(gym.Env):
             except Exception:
                 pressure = 0.0
 
-            rewards[tls_id] = compute_tls_reward(
+            # Per-TLS transition cost for switch penalty scaling
+            yw = self._yellow_steps.get(tls_id, 6)
+            ar = self._allred_steps.get(tls_id, 4)
+            tc = (yw + ar) / max(self._avg_transition, 1)
+
+            raw_reward = compute_tls_reward(
                 old_waiting=self._prev_waiting.get(tls_id, 0.0),
                 new_waiting=total_wait,
                 queue_lengths=queues,
                 old_throughput=self._prev_throughput.get(tls_id, 0),
                 new_throughput=incoming_veh,
                 pressure=pressure,
-                collisions=tls_collisions.get(tls_id, 0),
-                emergency_brakes=tls_ebrakes.get(tls_id, 0),
-                collision_penalty=self.collision_penalty,
-                ebrake_penalty=self.ebrake_penalty,
+                phase_changed=(tls_id in changed_tls_set) if changed_tls_set else False,
+                transition_cost=tc,
+                # Baseline bonus only for multi-phase TLS (real intersections)
+                # Single-phase ped crossings always have low wait — bonus is meaningless
+                baseline_active=(self.baseline_active and tls_info.num_green_phases >= 2),
             )
+
+            # Apply importance weighting
+            rewards[tls_id] = raw_reward * self._reward_weight.get(tls_id, 1.0)
 
             self._prev_waiting[tls_id] = total_wait
             self._prev_throughput[tls_id] = incoming_veh
+
+        # ── Global baseline bonus ─────────────────────────────────────
+        # Compute network-wide avg wait, compare to baseline.
+        # ALL agents get the same bonus/penalty — shared team reward.
+        # This tells every agent: "the whole network is winning/losing."
+        if self.baseline_active and rewards:
+            try:
+                # Network-wide average wait time this step
+                net_wait = sum(
+                    self._conn.edge.getWaitingTime(eid)
+                    for tls in self._tls_list
+                    for eid in tls.incoming_edges[:4]
+                ) / max(len(self._tls_list), 1)
+            except Exception:
+                net_wait = 0.0
+
+            baseline_wait = 25.0  # from comparison runs
+            # +0.5 when net_wait=0, 0 when net_wait=baseline, -0.5 when 2x baseline
+            global_bonus = 0.5 * float(np.clip(
+                (baseline_wait - net_wait) / max(baseline_wait, 1.0), -1.0, 1.0
+            ))
+
+            for tls_id in rewards:
+                rewards[tls_id] += global_bonus
 
         return rewards
 
@@ -770,85 +877,23 @@ class SumoTrafficEnv(gym.Env):
                     pass
         n = max(count, 1)
         vehicles = 0
-        collisions = 0
         try:
             vehicles = self._conn.vehicle.getIDCount()
-        except traci.TraCIException:
-            pass
-        try:
-            collisions = self._conn.simulation.getCollidingVehiclesNumber()
         except traci.TraCIException:
             pass
         return {
             "avg_wait_time": round(total_wait / n, 2),
             "avg_queue_length": round(total_queue / n, 2),
             "total_vehicles": vehicles,
-            "collisions": collisions,
+            "throughput": self._total_throughput,
             "sim_time": self._sim_step,
         }
 
-    # ── Random event injection ─────────────────────────────────────
-
-    def _maybe_inject_events(self) -> None:
-        """Randomly inject traffic events to train the agent for disruptions."""
-        if not self._event_manager or not self._rng:
-            return
-
-        n_active = len(self._event_manager.get_active())
-        if n_active >= self.max_concurrent_events:
-            return
-
-        if self._rng.random() > self.event_probability:
-            return
-
-        # Pick random event type (weighted: rain and accidents more common)
-        weights = {
-            "accident": 0.25,
-            "heavy_rain": 0.20,
-            "flood": 0.15,
-            "construction": 0.15,
-            "concert": 0.15,
-            "vip": 0.10,
-        }
-        types = list(weights.keys())
-        probs = np.array([weights[t] for t in types])
-        probs /= probs.sum()
-        event_type = self._rng.choice(types, p=probs)
-
-        # Pick random edges
-        if event_type == "heavy_rain":
-            affected = []  # city-wide, no specific edges
-        else:
-            n_edges = self._rng.randint(1, 4)
-            idx = self._rng.randint(0, len(self._all_edges), size=n_edges)
-            affected = [self._all_edges[i] for i in idx]
-
-        # Random intensity and duration
-        intensity = float(self._rng.uniform(0.3, 0.9))
-        duration = float(self._rng.uniform(120, 600))  # 2-10 minutes
-
-        event = make_event(
-            event_type=event_type,
-            affected_edges=affected,
-            intensity=intensity,
-            start_time=float(self._sim_step),
-            duration=duration,
-        )
-        self._event_manager.add_event(event)
+    # [Level 2 REMOVED] Random event injection and active events — deleted
 
     def get_active_events(self) -> list[dict]:
-        """Return active events for logging/display."""
-        if not self._event_manager:
-            return []
-        return [
-            {
-                "type": e.event_type,
-                "edges": e.affected_edges[:3],
-                "intensity": e.intensity,
-                "remaining": e.time_remaining(float(self._sim_step)),
-            }
-            for e in self._event_manager.get_active()
-        ]
+        """Return active events for logging/display. (Level 2 removed — always empty)"""
+        return []
 
     # ── Cleanup ───────────────────────────────────────────────────────
 

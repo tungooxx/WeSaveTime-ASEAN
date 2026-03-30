@@ -26,107 +26,81 @@ _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-import traci
-
 from src.ai.traffic_env import (
     SumoTrafficEnv, OBS_DIM, OLD_OBS_DIM, ACT_DIM,
     remap_obs_for_old_model,
 )
 from src.ai.dqn_agent import TrafficDQNAgent
+from src.ai.mappo_agent import MAPPOAgent
 
 
-def run_baseline(net_file, route_file, sumo_cfg, sim_length=3600,
-                 seed=1000, episodes=3):
-    """Run SUMO with default timing (no AI), collect metrics per episode."""
-    import shutil
-    binary = shutil.which("sumo")
-    if not binary:
-        sumo_home = os.environ.get("SUMO_HOME", "")
-        binary = os.path.join(sumo_home, "bin", "sumo") if sumo_home else "sumo"
+def run_baseline(net_file, route_file, sumo_cfg, sim_length=1800,
+                 delta_time=30, seed=1000, episodes=3):
+    """Run the SAME SumoTrafficEnv as the AI but with a 'do nothing' policy.
+
+    Every step, the agent just keeps the current phase (action 0 = first
+    green phase for each TLS). This means the env does the same warm-up,
+    same roundabout handling, same metric collection — only difference is
+    no intelligent phase switching.
+    """
+    env = SumoTrafficEnv(
+        net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
+        delta_time=delta_time, sim_length=sim_length, gui=False, seed=seed,
+    )
 
     results = []
     for ep in range(1, episodes + 1):
-        label = f"baseline_{ep}"
-        try:
-            traci.getConnection(label).close()
-        except Exception:
-            pass
-
-        cmd = [binary, "-c", sumo_cfg,
-               "--seed", str(seed + ep),
-               "--no-step-log", "true",
-               "--no-warnings", "true",
-               "--collision.action", "warn",
-               "--collision.check-junctions", "true",
-               "--time-to-teleport", "300",
-               "--step-length", "1"]
-        traci.start(cmd, label=label)
-        conn = traci.getConnection(label)
-
-        import traci.constants as tc
-
-        # Use edge-level calls in batch (no per-vehicle loops)
-        edge_ids = [e for e in conn.edge.getIDList() if not e.startswith(":")]
-
-        wait_samples = []
-        queue_samples = []
-        total_collisions = 0
-        total_throughput = 0
         t0 = time.time()
+        obs, _ = env.reset(seed=seed + ep)
+        terminated = truncated = False
 
-        # Step through simulation, sampling every 200 steps (fast)
-        for step in range(sim_length):
-            conn.simulationStep()
-
-            if step % 200 == 0 and step > 0:
-                try:
-                    total_collisions += conn.simulation.getCollidingVehiclesNumber()
-                    total_throughput += conn.simulation.getArrivedNumber()
-                except Exception:
-                    pass
-
-                step_wait = 0.0
-                step_queue = 0
-                count = 0
-                for eid in edge_ids[:500]:  # sample up to 500 edges
-                    try:
-                        step_queue += conn.edge.getLastStepHaltingNumber(eid)
-                        step_wait += conn.edge.getWaitingTime(eid)
-                        count += 1
-                    except Exception:
-                        pass
-                n = max(count, 1)
-                wait_samples.append(step_wait / n)
-                queue_samples.append(step_queue / n)
+        while not (terminated or truncated):
+            # "Do nothing" — keep current phase for every TLS
+            actions = {}
+            for tid in env.tls_ids:
+                # Action 0 = keep first green phase (no switching)
+                green_phases = env._green_phases.get(tid, [0])
+                current = env._current_phases.get(tid, green_phases[0])
+                # Find action index that maps to current phase
+                action = 0
+                for ai, gp in enumerate(green_phases):
+                    if gp == current:
+                        action = ai
+                        break
+                actions[tid] = action
+            obs, rewards, terminated, truncated, _ = env.step(actions)
 
         elapsed = time.time() - t0
-        try:
-            final_veh = conn.vehicle.getIDCount()
-        except Exception:
-            final_veh = 0
-        conn.close()
-
+        metrics = env.get_metrics()
         results.append({
             "episode": ep,
-            "avg_wait": round(np.mean(wait_samples) if wait_samples else 0, 1),
-            "avg_queue": round(np.mean(queue_samples) if queue_samples else 0, 1),
-            "collisions": total_collisions,
-            "throughput": total_throughput,
-            "vehicles_end": final_veh,
+            "avg_wait": metrics.get("avg_wait_time", 0),
+            "avg_queue": metrics.get("avg_queue_length", 0),
+            "throughput": metrics.get("throughput", 0),
+            "vehicles_end": metrics.get("total_vehicles", 0),
             "time_s": round(elapsed, 1),
         })
 
+    env.close()
     return results
 
 
 def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
-              sim_length=3600, delta_time=10, seed=1000, episodes=3):
+              sim_length=3600, delta_time=30, seed=1000, episodes=3):
     """Run trained model greedily, collect metrics per episode."""
     import torch
     ckpt = torch.load(model_path, map_location="cpu", weights_only=True)
     ckpt_obs_dim = ckpt.get("obs_dim", OBS_DIM)
+    algorithm = ckpt.get("algorithm", "dqn")
 
-    agent = TrafficDQNAgent(ckpt_obs_dim, ACT_DIM, hidden)
+    # Auto-detect hidden size from checkpoint weights
+    if "model" in ckpt and "actor.0.weight" in ckpt["model"]:
+        hidden = ckpt["model"]["actor.0.weight"].shape[0]
+
+    if algorithm == "mappo":
+        agent = MAPPOAgent(ckpt_obs_dim, ACT_DIM, hidden)
+    else:
+        agent = TrafficDQNAgent(ckpt_obs_dim, ACT_DIM, hidden)
     agent.load(model_path)
 
     env = SumoTrafficEnv(
@@ -142,13 +116,21 @@ def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
         obs, _ = env.reset(seed=seed + ep)
         terminated = truncated = False
         total_reward = 0.0
+        total_throughput = 0
 
         while not (terminated or truncated):
             actions = {}
+            if algorithm == "mappo":
+                global_obs = np.mean(
+                    [obs[tid] for tid in env.tls_ids], axis=0
+                ).astype(np.float32)
             for tid in env.tls_ids:
                 valid = env.get_valid_actions(tid)
                 o = remap_obs_for_old_model(obs[tid]) if needs_remap else obs[tid]
-                a = agent.select_action(o, valid, greedy=True)
+                if algorithm == "mappo":
+                    a, _, _ = agent.select_action(o, global_obs, valid, greedy=True)
+                else:
+                    a = agent.select_action(o, valid, greedy=True)
                 actions[tid] = a
             obs, rewards, terminated, truncated, _ = env.step(actions)
             total_reward += sum(rewards.values())
@@ -159,8 +141,7 @@ def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
             "episode": ep,
             "avg_wait": metrics.get("avg_wait_time", 0),
             "avg_queue": metrics.get("avg_queue_length", 0),
-            "collisions": metrics.get("collisions", 0),
-            "throughput": 0,
+            "throughput": metrics.get("throughput", 0),
             "vehicles_end": metrics.get("total_vehicles", 0),
             "total_reward": round(total_reward, 2),
             "time_s": round(elapsed, 1),
@@ -179,10 +160,8 @@ def compare(baseline_results, model_results):
     m_wait = avg(model_results, "avg_wait")
     b_queue = avg(baseline_results, "avg_queue")
     m_queue = avg(model_results, "avg_queue")
-    b_col = sum(r["collisions"] for r in baseline_results)
-    m_col = sum(r["collisions"] for r in model_results)
-    b_tp = sum(r["throughput"] for r in baseline_results)
-    m_tp = sum(r.get("throughput", 0) for r in model_results)
+    b_tp = avg(baseline_results, "throughput")
+    m_tp = avg(model_results, "throughput")
 
     print()
     print("=" * 65)
@@ -205,29 +184,28 @@ def compare(baseline_results, model_results):
 
     row("Avg Wait Time (s)", b_wait, m_wait)
     row("Avg Queue Length", b_queue, m_queue)
-    row("Total Collisions", b_col, m_col, fmt="d")
     if b_tp > 0:
-        row("Throughput (arrived)", b_tp, m_tp, fmt="d", lower_better=False)
+        row("Throughput (arrived)", b_tp, m_tp, fmt=".0f", lower_better=False)
 
     print()
     wait_imp = (b_wait - m_wait) / max(b_wait, 0.1) * 100
     queue_imp = (b_queue - m_queue) / max(b_queue, 0.1) * 100
-    col_imp = (b_col - m_col) / max(b_col, 1) * 100
+    tp_imp = (m_tp - b_tp) / max(b_tp, 1) * 100
 
     print(f"  SUMMARY:")
     print(f"    Wait time  : {wait_imp:+.1f}% {'(improved)' if wait_imp > 0 else '(worse)'}")
     print(f"    Queue      : {queue_imp:+.1f}% {'(improved)' if queue_imp > 0 else '(worse)'}")
-    print(f"    Collisions : {col_imp:+.1f}% {'(safer)' if col_imp > 0 else '(more dangerous)'}")
+    print(f"    Throughput : {tp_imp:+.1f}% {'(improved)' if tp_imp > 0 else '(worse)'}")
     print("=" * 65)
 
     return {
         "baseline": {"avg_wait": b_wait, "avg_queue": b_queue,
-                     "collisions": b_col, "throughput": b_tp},
+                     "throughput": b_tp},
         "model": {"avg_wait": m_wait, "avg_queue": m_queue,
-                  "collisions": m_col, "throughput": m_tp},
+                  "throughput": m_tp},
         "improvement": {"wait_pct": round(wait_imp, 1),
                         "queue_pct": round(queue_imp, 1),
-                        "collision_pct": round(col_imp, 1)},
+                        "throughput_pct": round(tp_imp, 1)},
     }
 
 
@@ -244,7 +222,8 @@ def main():
         _PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"))
     ap.add_argument("--episodes", type=int, default=3)
     ap.add_argument("--hidden", type=int, default=256)
-    ap.add_argument("--sim-length", type=int, default=3600)
+    ap.add_argument("--sim-length", type=int, default=1800,
+                        help="Sim steps (1800 = 900 real seconds at step_length=0.5)")
     ap.add_argument("--seed", type=int, default=1000)
     args = ap.parse_args()
 
@@ -263,7 +242,7 @@ def main():
         sim_length=args.sim_length, seed=args.seed, episodes=args.episodes)
     for r in baseline:
         print(f"    Ep {r['episode']}: wait={r['avg_wait']:.1f}s "
-              f"queue={r['avg_queue']:.1f} col={r['collisions']} "
+              f"queue={r['avg_queue']:.1f} tp={r['throughput']} "
               f"({r['time_s']:.0f}s)")
     print(f"    Total: {time.time()-t0:.0f}s")
 
@@ -275,7 +254,7 @@ def main():
         seed=args.seed, episodes=args.episodes)
     for r in model:
         print(f"    Ep {r['episode']}: wait={r['avg_wait']:.1f}s "
-              f"queue={r['avg_queue']:.1f} col={r['collisions']} "
+              f"queue={r['avg_queue']:.1f} tp={r['throughput']} "
               f"reward={r.get('total_reward', 0):.1f} ({r['time_s']:.0f}s)")
     print(f"    Total: {time.time()-t0:.0f}s")
 

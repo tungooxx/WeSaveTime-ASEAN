@@ -1,17 +1,11 @@
 """
 FlowMind AI - Reward computation for traffic signal RL.
 
-Design philosophy:
-  - Efficiency is the primary objective (wait time, queue, throughput, pressure)
-  - Safety is a HARD CONSTRAINT, not a weighted trade-off
-  - When no collision: reward is purely about efficiency (~-1 to +0.5)
-  - When collision: massive penalty (-5 per collision) overwhelms everything
-  - This prevents the agent from being "too conservative" or "too reckless"
+Level 1: Pure timing optimization reward.
 
 Per-TLS reward structure:
-  efficiency = wait_improvement + queue_penalty + fairness + throughput + pressure
-  safety     = -5.0 per collision, -0.5 per emergency brake (only when they happen)
-  reward     = efficiency + safety
+  reward = wait_improvement + queue_penalty + fairness + throughput + pressure + switch_penalty
+  Range: approximately -1 to +0.5 per step
 """
 
 from __future__ import annotations
@@ -26,34 +20,34 @@ def compute_tls_reward(
     old_throughput: int = 0,
     new_throughput: int = 0,
     pressure: float = 0.0,
-    collisions: int = 0,
-    emergency_brakes: int = 0,
+    phase_changed: bool = False,
+    transition_cost: float = 1.0,
     max_queue_cap: float = 50.0,
-    # Efficiency weights (sum to 1.0, only affect the efficiency part)
-    w_wait: float = 0.40,
-    w_queue: float = 0.25,
-    w_fairness: float = 0.10,
+    # Baseline targets (from comparison runs, Phase 3 only)
+    baseline_wait: float = 25.0,    # baseline avg wait per TLS
+    baseline_queue: float = 0.9,    # baseline avg queue per TLS
+    baseline_active: bool = True,   # False during curriculum Phase 1-2
+    w_wait: float = 0.20,
+    w_queue: float = 0.10,
+    w_fairness: float = 0.05,
     w_throughput: float = 0.10,
-    w_pressure: float = 0.15,
-    # Safety penalty magnitudes (not weights — these are absolute penalties)
-    collision_penalty: float = 5.0,
-    ebrake_penalty: float = 0.5,
+    w_pressure: float = 0.25,
+    w_switch: float = 0.10,
+    w_baseline: float = 0.20,       # baseline bonus weight
 ) -> float:
     """Compute scalar reward for one TLS (higher = better).
 
-    The reward has two independent parts:
-      1. Efficiency score (continuous, -1 to +1 range)
-      2. Safety penalty (sparse, only when collisions/ebrakes happen)
+    Combines penalty terms with a baseline bonus:
+    - Penalty terms: fine-grained signal for what to optimize
+    - Baseline bonus: positive when AI beats SUMO default, negative when worse
+      This gives the agent a TARGET — it knows when it's doing well.
 
-    This design means:
-      - 99% of steps: agent optimizes purely for traffic flow
-      - Rare collision: agent gets hit with -5, learns "never do this again"
-      - Agent won't become overly conservative (safety doesn't compete with flow)
+    Args:
+        baseline_wait: Expected wait time under SUMO default timing.
+        baseline_queue: Expected queue length under SUMO default timing.
+        transition_cost: Per-TLS scaling for switch penalty.
     """
-    # ── Efficiency (continuous, every step) ──────────────────────────
-
-    # 1. Waiting-time improvement (primary signal)
-    # Negative delta = wait decreased = good
+    # 1. Waiting-time improvement (step-to-step delta)
     delta_wait = new_waiting - old_waiting
     wait_term = -w_wait * float(np.clip(delta_wait / 100.0, -2.0, 2.0))
 
@@ -69,24 +63,28 @@ def compute_tls_reward(
     tp_change = new_throughput - old_throughput
     throughput_term = w_throughput * float(np.clip(tp_change / 10.0, -1.0, 1.0))
 
-    # 5. Pressure (outgoing > incoming = good flow, from sumo-rl)
+    # 5. Pressure (outgoing > incoming = good flow)
     pressure_term = w_pressure * float(np.clip(pressure / 20.0, -1.0, 1.0))
 
-    efficiency = (wait_term + queue_term + fairness_term
-                  + throughput_term + pressure_term)
+    # 6. Phase-switch penalty scaled by intersection transition cost
+    switch_term = -w_switch * transition_cost if phase_changed else 0.0
 
-    # ── Safety (sparse, only when bad things happen) ─────────────────
-    # These are ABSOLUTE penalties, not weighted against efficiency.
-    # A single collision = -5.0, which wipes out ~10 good steps of reward.
-    # This teaches the agent "collisions are unacceptable" without making
-    # it afraid to change phases during normal operation.
-    safety = 0.0
-    if collisions > 0:
-        safety -= collision_penalty * collisions
-    if emergency_brakes > 0:
-        safety -= ebrake_penalty * emergency_brakes
+    # 7. Baseline bonus: POSITIVE when beating baseline, NEGATIVE when worse
+    #    Only active during full-traffic Phase 3 (curriculum learning).
+    #    During Phase 1-2, the bonus is disabled so the AI doesn't get
+    #    free positive rewards from low traffic.
+    if baseline_active:
+        bl_wait = max(baseline_wait, 1.0)
+        bl_queue = max(baseline_queue, 0.1)
+        wait_bonus = float(np.clip((bl_wait - new_waiting) / bl_wait, -1.0, 1.0))
+        queue_bonus = float(np.clip((bl_queue - avg_q) / bl_queue, -1.0, 1.0))
+        baseline_term = w_baseline * (0.7 * wait_bonus + 0.3 * queue_bonus)
+    else:
+        baseline_term = 0.0
 
-    return float(efficiency + safety)
+    return float(wait_term + queue_term + fairness_term
+                 + throughput_term + pressure_term + switch_term
+                 + baseline_term)
 
 
 def compute_global_reward(

@@ -120,7 +120,7 @@ def build_network():
         "--tls.guess.threshold", "100",
         # Junction handling
         "--junctions.join", "true",
-        "--junctions.join-dist", "20",
+        "--junctions.join-dist", "50",
         "--junctions.corner-detail", "5",
         # Lane and road geometry
         "--geometry.remove", "true",
@@ -140,6 +140,33 @@ def build_network():
     ]
 
     return run(cmd, "Building SUMO network from OSM")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Step 2b: Fix speed limits — cap all lanes to 50 km/h for downtown
+# ══════════════════════════════════════════════════════════════════════
+
+def fix_speed_limits():
+    """Cap all lane speeds to 50 km/h (13.89 m/s) for downtown Hai Chau.
+
+    OSM tags many roads as highway=trunk (100 km/h default), but this is
+    a dense urban district — real speed limit is 40-50 km/h.
+    """
+    import xml.etree.ElementTree as ET
+    tree = ET.parse(NET_FILE)
+    root = tree.getroot()
+    max_speed = 13.89  # 50 km/h
+
+    count = 0
+    for lane in root.iter("lane"):
+        speed = float(lane.get("speed", "0"))
+        if speed > max_speed:
+            lane.set("speed", f"{max_speed:.2f}")
+            count += 1
+
+    tree.write(NET_FILE, xml_declaration=True, encoding="UTF-8")
+    print(f"  Capped {count} lanes to 50 km/h ({max_speed} m/s)")
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -321,26 +348,28 @@ def generate_demand():
     randomTrips = find_tool("randomTrips.py")
     duarouter = find_tool("duarouter")
 
-    # Hai Chau District: dense downtown, 10,000 vehicles for 1-hour peak
+    # Hai Chau District: ~1,655 vehicles for 900s training scenario
     # ~68% motorbike, ~20% car, ~6% bus, ~6% truck
     trip_files = []
 
     vehicle_configs = [
         # (prefix, vtype, count, fringe_factor)
-        ("ma_", "motorbike",   4500, 1),   # main motorbike wave
-        ("mx_", "motorbike2",  2300, 2),   # secondary motorbike wave
-        ("ca_", "car",         1200, 5),   # sedans
-        ("sv_", "car_suv",      500, 5),   # SUVs
-        ("tx_", "taxi",         500, 5),   # taxis (Grab/Mai Linh)
-        ("bs_", "bus",          400, 10),  # city buses
-        ("tk_", "truck",        300, 9),   # heavy trucks
-        ("dv_", "delivery",     300, 5),   # delivery vans
+        ("ma_", "motorbike",    750, 1),   # main motorbike wave
+        ("mx_", "motorbike2",   380, 2),   # secondary motorbike wave
+        ("ca_", "car",          200, 5),   # sedans
+        ("sv_", "car_suv",       80, 5),   # SUVs
+        ("tx_", "taxi",          80, 5),   # taxis (Grab/Mai Linh)
+        ("bs_", "bus",           65, 10),  # city buses
+        ("tk_", "truck",         50, 9),   # heavy trucks
+        ("dv_", "delivery",      50, 5),   # delivery vans
     ]
 
     for prefix, vtype, count, fringe in vehicle_configs:
         trip_file = os.path.join(SCRIPT_DIR, f"danang.{prefix}.trips.xml")
         trip_files.append(trip_file)
 
+        # Spawn vehicles in first 600s, leaving 300s for network to drain
+        depart_end = 600
         cmd = [
             sys.executable, randomTrips,
             "-n", NET_FILE,
@@ -349,8 +378,8 @@ def generate_demand():
             "--trip-attributes", f'type="{vtype}"',
             "--prefix", prefix,
             "-b", "0",
-            "-e", "3600",
-            "-p", str(round(3600 / count, 2)),
+            "-e", str(depart_end),
+            "-p", str(round(depart_end / count, 2)),
             "--fringe-factor", str(fringe),
             "--validate",
             "--remove-loops",
@@ -618,12 +647,12 @@ def main():
 
     steps = [
         ("1. Check OSM file",            check_osm),
-        ("2. Build SUMO network",        build_network),
+        ("2a. Build SUMO network",       build_network),
+        ("2b. Fix speed limits (50 km/h)", fix_speed_limits),
         ("3. Build polygon overlays",    build_polygons),
         ("4a. Create vehicle types",     create_vehicle_types),
         ("4b. Create edge weights",      create_edge_weights),
         ("5. Generate traffic demand",   generate_demand),
-        ("5b. Add candidate TLS",       add_candidate_tls),
         ("6. Create SUMO config",        create_config),
     ]
 

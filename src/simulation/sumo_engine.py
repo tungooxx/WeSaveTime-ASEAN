@@ -407,19 +407,19 @@ class SumoEngine:
         self._rain_intensity = sc.rain_intensity
         self._base_density = sc.base_density
 
-        # Handle special events
-        for evt in sc.special_events:
-            etype = evt.get("type")
-            if etype == "blocked_lane":
-                idx = evt.get("intersection_idx", 0)
-                if 0 <= idx < len(_INTERSECTIONS):
-                    ix_id = _INTERSECTIONS[idx][0]
-                    direction = evt.get("lane_direction", "S")
-                    self._blocked_lanes.add(f"{ix_id}_{direction}")
-            elif etype == "emergency_vehicle":
-                from_idx = evt.get("from_intersection_idx", 0)
-                to_idx = evt.get("to_intersection_idx", len(_INTERSECTIONS) - 1)
-                self.inject_emergency_vehicle(from_idx, to_idx)
+        # [Level 2 REMOVED] Handle special events
+        # for evt in sc.special_events:
+        #     etype = evt.get("type")
+        #     if etype == "blocked_lane":
+        #         idx = evt.get("intersection_idx", 0)
+        #         if 0 <= idx < len(_INTERSECTIONS):
+        #             ix_id = _INTERSECTIONS[idx][0]
+        #             direction = evt.get("lane_direction", "S")
+        #             self._blocked_lanes.add(f"{ix_id}_{direction}")
+        #     elif etype == "emergency_vehicle":
+        #         from_idx = evt.get("from_intersection_idx", 0)
+        #         to_idx = evt.get("to_intersection_idx", len(_INTERSECTIONS) - 1)
+        #         self.inject_emergency_vehicle(from_idx, to_idx)
 
         return sc
 
