@@ -118,6 +118,7 @@ class TrainingThread(threading.Thread):
                     hidden=self.params["hidden"],
                     lr=self.params["lr"],
                     gamma=self.params["gamma"],
+                    entropy_coef=self.params.get("entropy_coef", 0.03),
                     save_dir=self.params["save_dir"],
                     save_every=self.params["save_every"],
                     seed=self.params["seed"],
@@ -199,15 +200,16 @@ class RLDashboard:
         self._params: dict[str, tk.Variable] = {}
         param_defs = [
             ("episodes",       "Episodes",        100,    int),
-            ("lr",             "Learning Rate",    0.001,  float),
+            ("lr",             "Learning Rate",    0.0003, float),
             ("hidden",         "Hidden Size",      256,    int),
             ("gamma",          "Gamma",            0.99,   float),
             ("batch_size",     "Batch Size",       64,     int),
             ("buffer_capacity","Buffer Size",      200000, int),
             ("epsilon_decay",  "Epsilon Decay",    500000, int),
             ("delta_time",     "Delta Time (s)",   30,     int),
-            ("sim_length",     "Sim Steps",         1800,   int),
+            ("sim_length",     "Sim Steps",         3600,   int),
             ("seed",           "Seed",             42,     int),
+            ("entropy_coef",   "Entropy Coef",     0.03,   float),
         ]
 
         self._param_entries: list[tk.Entry] = []

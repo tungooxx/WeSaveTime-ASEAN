@@ -1,0 +1,7 @@
+{
+  "baseline": {
+    "avg_wait": 25.0,
+    "avg_queue": 0.9,
+    "throughput": 1226
+  }
+}

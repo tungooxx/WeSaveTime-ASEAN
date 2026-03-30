@@ -371,6 +371,22 @@ class MAPPOAgent:
 
     def load(self, path: str) -> None:
         ckpt = torch.load(path, map_location=self.device, weights_only=True)
+        model_keys = ckpt["model"].keys()
+
+        # Auto-detect action mode from checkpoint keys
+        ckpt_mode = "continuous" if "actor_backbone.0.weight" in model_keys else "discrete"
+        if ckpt_mode != self.action_mode:
+            # Recreate network with correct mode
+            hidden = ckpt["model"]["critic.0.weight"].shape[0]
+            self.action_mode = ckpt_mode
+            self.network = ActorCritic(
+                self.obs_dim, self.act_dim, hidden,
+                action_mode=ckpt_mode
+            ).to(self.device)
+
         self.network.load_state_dict(ckpt["model"])
         if "optimizer" in ckpt:
-            self.optimizer.load_state_dict(ckpt["optimizer"])
+            try:
+                self.optimizer.load_state_dict(ckpt["optimizer"])
+            except (ValueError, KeyError):
+                pass  # optimizer shape mismatch after mode change

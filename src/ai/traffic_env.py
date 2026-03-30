@@ -830,6 +830,30 @@ class SumoTrafficEnv(gym.Env):
             self._prev_waiting[tls_id] = total_wait
             self._prev_throughput[tls_id] = incoming_veh
 
+        # ── Global baseline bonus ─────────────────────────────────────
+        # Compute network-wide avg wait, compare to baseline.
+        # ALL agents get the same bonus/penalty — shared team reward.
+        # This tells every agent: "the whole network is winning/losing."
+        if self.baseline_active and rewards:
+            try:
+                # Network-wide average wait time this step
+                net_wait = sum(
+                    self._conn.edge.getWaitingTime(eid)
+                    for tls in self._tls_list
+                    for eid in tls.incoming_edges[:4]
+                ) / max(len(self._tls_list), 1)
+            except Exception:
+                net_wait = 0.0
+
+            baseline_wait = 25.0  # from comparison runs
+            # +0.5 when net_wait=0, 0 when net_wait=baseline, -0.5 when 2x baseline
+            global_bonus = 0.5 * float(np.clip(
+                (baseline_wait - net_wait) / max(baseline_wait, 1.0), -1.0, 1.0
+            ))
+
+            for tls_id in rewards:
+                rewards[tls_id] += global_bonus
+
         return rewards
 
     # ── Metrics (for logging) ─────────────────────────────────────────
