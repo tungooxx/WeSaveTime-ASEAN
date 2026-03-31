@@ -34,7 +34,7 @@ from src.ai.dqn_agent import TrafficDQNAgent
 from src.ai.mappo_agent import MAPPOAgent
 
 
-def run_baseline(net_file, route_file, sumo_cfg, sim_length=1800,
+def run_baseline(net_file, route_file, sumo_cfg, sim_length=3600,
                  delta_time=30, seed=1000, episodes=3):
     """Run the SAME SumoTrafficEnv as the AI but with a 'do nothing' policy.
 
@@ -222,8 +222,8 @@ def main():
         _PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"))
     ap.add_argument("--episodes", type=int, default=3)
     ap.add_argument("--hidden", type=int, default=256)
-    ap.add_argument("--sim-length", type=int, default=1800,
-                        help="Sim steps (1800 = 900 real seconds at step_length=0.5)")
+    ap.add_argument("--sim-length", type=int, default=3600,
+                        help="Sim steps (3600 = 1800 real seconds at step_length=0.5)")
     ap.add_argument("--seed", type=int, default=1000)
     args = ap.parse_args()
 

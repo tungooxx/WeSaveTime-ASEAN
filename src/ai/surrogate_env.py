@@ -137,7 +137,7 @@ class SurrogateEnv(gym.Env):
                 o[MAX_INCOMING_EDGES * 3 + 1] = 0.0  # phase changed, reset
             else:
                 elapsed = obs_batch[i][MAX_INCOMING_EDGES * 3 + 1]
-                o[MAX_INCOMING_EDGES * 3 + 1] = min(elapsed + self.delta_time / 90.0, 1.0)
+                o[MAX_INCOMING_EDGES * 3 + 1] = min(elapsed + self.delta_time / 45.0, 1.0)
 
             # Feature 38: min_green flag (approx: ~25 real seconds = 50 steps)
             elapsed_val = o[MAX_INCOMING_EDGES * 3 + 1] * 90.0  # denormalize

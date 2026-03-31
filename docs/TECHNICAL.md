@@ -45,7 +45,7 @@ FlowMind AI is a multi-agent reinforcement learning system that controls traffic
 
 ### High-Level Data Flow
 
-```
+```text
 +-------------------+         +-------------------+         +-------------------+
 |                   |  TraCI  |                   |  obs    |                   |
 |   SUMO Simulator  |<------->|  SumoTrafficEnv   |-------->|   MAPPO Agent     |
@@ -61,7 +61,7 @@ FlowMind AI is a multi-agent reinforcement learning system that controls traffic
 
 ### Detailed Component Interaction
 
-```
+```text
 +-------------------------------------------------------------------+
 |                        TRAINING LOOP                               |
 |                                                                    |
@@ -120,7 +120,7 @@ The simulation network covers **Hai Chau District** --- Da Nang's downtown core,
 
 The network is constructed through a multi-stage pipeline:
 
-```
+```text
 map.osm (OpenStreetMap)
     |
     v
@@ -233,7 +233,7 @@ Each non-trivial TLS receives individualized timing parameters computed from eng
 
 #### Yellow Time (ITE / Kell-Fullerton Formula)
 
-```
+```text
 yellow = max(3.0, 1.0 + v / (2 * a))
 ```
 
@@ -244,7 +244,7 @@ Where:
 
 #### All-Red Clearance (FHWA Formula)
 
-```
+```text
 allred = max(1.5, (W + L) / v)
 ```
 
@@ -269,7 +269,7 @@ The pedestrian constraint is typically the **binding constraint** for medium and
 
 Total cycle length is constrained to <= 120 real seconds:
 
-```
+```text
 if n_phases * (min_green + yellow + allred) > 120s:
     min_green = max((120 - n * (yellow + allred)) / n, 7.0)
 ```
@@ -278,7 +278,7 @@ if n_phases * (min_green + yellow + allred) > 120s:
 
 Used for the default fixed-timing baseline:
 
-```
+```text
 L = n * (1.5 + yellow + allred)        # total lost time
 Y = min(n * 0.30, 0.90)                # flow ratio estimate
 C_opt = (1.5 * L + 5) / (1 - Y)       # Webster's formula
@@ -319,7 +319,7 @@ There is **no OFF action** --- the agent must always select a valid green phase.
 
 The `step()` function implements a per-TLS state machine that processes yellow, all-red, and green transitions independently for each intersection:
 
-```
+```text
 For each decision step (delta_time = 30 sim ticks = 15 real seconds):
 
 1. RESOLVE target phases from actions
@@ -355,8 +355,8 @@ This design means:
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | `delta_time` | 30 ticks | 15 real seconds per decision |
-| `sim_length` | 1800 ticks | 900 real seconds total |
-| Steps per episode | 60 | 1800 / 30 |
+| `sim_length` | 3600 ticks | 1800 real seconds total |
+| Steps per episode | 120 | 3600 / 30 |
 | Warm-up | 30 ticks | Before first observation |
 
 ### Early Termination
@@ -375,7 +375,7 @@ The reward function follows a **pressure-primary** design, inspired by the **Pre
 
 The per-TLS reward is a weighted sum of six terms:
 
-```
+```text
 reward = wait_term + queue_term + fairness_term + throughput_term + pressure_term + switch_term
 ```
 
@@ -404,7 +404,7 @@ Average queue length (halting vehicles) across all incoming edges, normalized by
 **Switch Penalty (w=0.15):**
 Applied only when the agent switches to a different phase. Scaled by the **per-TLS transition cost**:
 
-```
+```text
 transition_cost = (yellow_steps + allred_steps) / avg_transition_across_all_TLS
 ```
 
@@ -429,7 +429,7 @@ The MAPPO (Multi-Agent Proximal Policy Optimization) agent implements the **Cent
 
 ### Network Architecture (`ActorCritic`)
 
-```
+```text
 ACTOR (local obs -> action logits):
     Linear(39, 256) -> ReLU
     Linear(256, 256) -> ReLU
@@ -454,7 +454,7 @@ Transitions are stored in an on-policy `RolloutBuffer` containing per-agent tupl
 
 **Generalized Advantage Estimation (GAE):**
 
-```
+```text
 delta_t = r_t + gamma * V(s_{t+1}) * (1 - done) - V(s_t)
 A_t = delta_t + gamma * lambda * (1 - done_{t+1}) * A_{t+1}
 returns_t = A_t + V(s_t)
@@ -470,7 +470,7 @@ For `ppo_epochs` iterations over shuffled mini-batches:
 2. Compute probability ratio: `r = exp(log_pi_new - log_pi_old)`
 3. Clipped surrogate loss: `L_actor = -min(r * A, clip(r, 1-eps, 1+eps) * A)`
 4. Value loss: `L_critic = MSE(V, returns)`
-5. Total loss: `L = L_actor + 0.5 * L_critic - 0.01 * entropy`
+5. Total loss: `L = L_actor + 0.5 * L_critic - 0.03 * entropy`
 6. Gradient clipping at norm 0.5
 
 ### Hyperparameters
@@ -482,7 +482,7 @@ For `ppo_epochs` iterations over shuffled mini-batches:
 | `gamma` | 0.99 | Discount factor |
 | `gae_lambda` | 0.95 | GAE lambda |
 | `clip_eps` | 0.2 | PPO clip range |
-| `entropy_coef` | 0.01 | Entropy bonus coefficient |
+| `entropy_coef` | 0.03 | Entropy bonus coefficient |
 | `value_coef` | 0.5 | Value loss coefficient |
 | `max_grad_norm` | 0.5 | Gradient clipping norm |
 | `ppo_epochs` | 10 | PPO optimization epochs per rollout |
@@ -520,10 +520,10 @@ The training loop supports both DQN and MAPPO algorithms:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `lr` | 0.001 | Learning rate for Adam optimizer |
+| `lr` | 3e-4 | Learning rate for Adam optimizer |
 | `gamma` | 0.99 | Discount factor |
 | `delta_time` | 30 | Sim ticks per decision (15 real seconds) |
-| `sim_length` | 1800 | Sim ticks per episode (900 real seconds) |
+| `sim_length` | 3600 | Sim ticks per episode (1800 real seconds) |
 | `hidden` | 256 | MLP hidden layer size |
 | `batch_size` | 64 | DQN replay batch size |
 | `episodes` | 100 | Default training episodes |
@@ -642,7 +642,7 @@ Eight vehicle types are calibrated for Vietnamese conditions:
 
 ## Appendix A: File Structure
 
-```
+```text
 WeSaveTime-ASEAN/
   src/
     ai/

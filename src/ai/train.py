@@ -1236,32 +1236,62 @@ def main() -> None:
     ap.add_argument("--eval-only", default=None, help="Checkpoint path for eval")
     ap.add_argument("--algorithm", choices=["dqn", "mappo"], default="dqn",
                     help="RL algorithm: dqn or mappo (default: dqn)")
+    ap.add_argument("--action-mode", choices=["discrete", "continuous"],
+                    default="discrete", help="Action mode (default: discrete)")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="Parallel SUMO workers for MAPPO (default: 1, use 2-8 for speed)")
 
     args = ap.parse_args()
 
     if args.eval_only:
-        agent = TrafficDQNAgent(OBS_DIM, ACT_DIM, args.hidden)
-        agent.load(args.eval_only)
+        # Auto-detect algorithm from checkpoint
+        ckpt = torch.load(args.eval_only, map_location="cpu", weights_only=True)
+        algo = ckpt.get("algorithm", "dqn")
+        if algo == "mappo":
+            agent = MAPPOAgent(OBS_DIM, ACT_DIM, args.hidden)
+            agent.load(args.eval_only)
+        else:
+            agent = TrafficDQNAgent(OBS_DIM, ACT_DIM, args.hidden)
+            agent.load(args.eval_only)
         results = evaluate(
             agent, args.net, args.route, args.cfg, gui=args.gui, seed=args.seed
         )
         print(f"\n  Results: {json.dumps(results, indent=2)}")
     elif args.algorithm == "mappo":
-        train_mappo_with_callbacks(
-            net_file=args.net,
-            route_file=args.route,
-            sumo_cfg=args.cfg,
-            episodes=args.episodes,
-            delta_time=args.delta_time,
-            sim_length=args.sim_length,
-            hidden=args.hidden,
-            lr=args.lr,
-            gamma=args.gamma,
-            save_dir=args.save_dir,
-            save_every=args.save_every,
-            seed=args.seed,
-            gui=args.gui,
-        )
+        if args.workers > 1:
+            train_mappo_parallel(
+                net_file=args.net,
+                route_file=args.route,
+                sumo_cfg=args.cfg,
+                episodes=args.episodes,
+                delta_time=args.delta_time,
+                sim_length=args.sim_length,
+                hidden=args.hidden,
+                lr=args.lr,
+                gamma=args.gamma,
+                save_dir=args.save_dir,
+                save_every=args.save_every,
+                seed=args.seed,
+                num_workers=args.workers,
+                action_mode=args.action_mode,
+            )
+        else:
+            train_mappo_with_callbacks(
+                net_file=args.net,
+                route_file=args.route,
+                sumo_cfg=args.cfg,
+                episodes=args.episodes,
+                delta_time=args.delta_time,
+                sim_length=args.sim_length,
+                hidden=args.hidden,
+                lr=args.lr,
+                gamma=args.gamma,
+                save_dir=args.save_dir,
+                save_every=args.save_every,
+                seed=args.seed,
+                gui=args.gui,
+                action_mode=args.action_mode,
+            )
     else:
         train(
             net_file=args.net,

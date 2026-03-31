@@ -99,14 +99,15 @@ class RolloutBuffer:
     def __init__(self) -> None:
         self.obs: list[np.ndarray] = []
         self.global_obs: list[np.ndarray] = []
-        self.actions: list[int] = []
+        self.actions: list = []  # int for discrete, float for continuous
         self.log_probs: list[float] = []
         self.rewards: list[float] = []
         self.values: list[float] = []
         self.dones: list[bool] = []
         self.valid_masks: list[np.ndarray] = []
 
-    def add(self, obs: np.ndarray, global_obs: np.ndarray, action: int,
+    def add(self, obs: np.ndarray, global_obs: np.ndarray,
+            action: int | float,
             log_prob: float, reward: float, value: float, done: bool,
             valid_mask: np.ndarray) -> None:
         self.obs.append(obs)
@@ -168,16 +169,17 @@ class RolloutBuffer:
         return advantages, returns
 
     def get_batches(self, batch_size: int, advantages: np.ndarray,
-                    returns: np.ndarray):
+                    returns: np.ndarray, continuous: bool = False):
         """Yield shuffled mini-batches."""
         n = len(self.obs)
         indices = np.random.permutation(n)
+        act_dtype = np.float32 if continuous else np.int64
         for start in range(0, n, batch_size):
             idx = indices[start:start + batch_size]
             yield {
                 "obs": np.array([self.obs[i] for i in idx], dtype=np.float32),
                 "global_obs": np.array([self.global_obs[i] for i in idx], dtype=np.float32),
-                "actions": np.array([self.actions[i] for i in idx], dtype=np.int64),
+                "actions": np.array([self.actions[i] for i in idx], dtype=act_dtype),
                 "old_log_probs": np.array([self.log_probs[i] for i in idx], dtype=np.float32),
                 "advantages": advantages[idx],
                 "returns": returns[idx],
@@ -310,11 +312,18 @@ class MAPPOAgent:
         total_entropy = 0.0
         n_updates = 0
 
+        is_cont = self.action_mode == "continuous"
+
         for _ in range(self.ppo_epochs):
-            for batch in self.buffer.get_batches(self.mini_batch_size, advantages, returns):
+            for batch in self.buffer.get_batches(
+                    self.mini_batch_size, advantages, returns,
+                    continuous=is_cont):
                 obs_t = torch.FloatTensor(batch["obs"]).to(self.device)
                 global_t = torch.FloatTensor(batch["global_obs"]).to(self.device)
-                actions_t = torch.LongTensor(batch["actions"]).to(self.device)
+                if is_cont:
+                    actions_t = torch.FloatTensor(batch["actions"]).to(self.device)
+                else:
+                    actions_t = torch.LongTensor(batch["actions"]).to(self.device)
                 old_lp_t = torch.FloatTensor(batch["old_log_probs"]).to(self.device)
                 adv_t = torch.FloatTensor(batch["advantages"]).to(self.device)
                 ret_t = torch.FloatTensor(batch["returns"]).to(self.device)
@@ -322,7 +331,10 @@ class MAPPOAgent:
 
                 # Recompute
                 dist = self.network.forward_actor(obs_t, mask_t)
-                new_lp = dist.log_prob(actions_t)
+                if is_cont:
+                    new_lp = dist.log_prob(actions_t.unsqueeze(-1)).sum(dim=-1)
+                else:
+                    new_lp = dist.log_prob(actions_t)
                 entropy = dist.entropy().mean()
                 values = self.network.forward_critic(obs_t, global_t)
 
@@ -355,7 +367,8 @@ class MAPPOAgent:
             "actor_loss": total_actor_loss / n,
             "critic_loss": total_critic_loss / n,
             "entropy": total_entropy / n,
-            "total_loss": (total_actor_loss + total_critic_loss) / n,
+            "total_loss": (total_actor_loss + self.value_coef * total_critic_loss
+                          - self.entropy_coef * total_entropy) / n,
         }
 
     # ── persistence ───────────────────────────────────────────────────
@@ -383,6 +396,9 @@ class MAPPOAgent:
                 self.obs_dim, self.act_dim, hidden,
                 action_mode=ckpt_mode
             ).to(self.device)
+            # Rebind optimizer to new network parameters
+            lr = self.optimizer.defaults["lr"]
+            self.optimizer = optim.Adam(self.network.parameters(), lr=lr)
 
         self.network.load_state_dict(ckpt["model"])
         if "optimizer" in ckpt:

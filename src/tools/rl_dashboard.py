@@ -206,7 +206,7 @@ class RLDashboard:
             ("batch_size",     "Batch Size",       64,     int),
             ("buffer_capacity","Buffer Size",      200000, int),
             ("epsilon_decay",  "Epsilon Decay",    500000, int),
-            ("delta_time",     "Delta Time (s)",   30,     int),
+            ("delta_time",     "Delta Time (ticks)", 30,    int),
             ("sim_length",     "Sim Steps",         3600,   int),
             ("seed",           "Seed",             42,     int),
             ("entropy_coef",   "Entropy Coef",     0.03,   float),
@@ -442,7 +442,15 @@ class RLDashboard:
         p["algorithm"] = self._algo_var.get()
         p["action_mode"] = self._action_mode_var.get()
         p["num_duration_levels"] = int(self._duration_levels_var.get())
-        p["num_workers"] = int(self._workers_var.get())
+        try:
+            workers = int(self._workers_var.get())
+            if workers < 1:
+                raise ValueError("must be >= 1")
+            p["num_workers"] = workers
+        except ValueError:
+            messagebox.showerror("Invalid Parameter",
+                                 f"Bad value for CPU Workers: {self._workers_var.get()}")
+            return {}
         return p
 
     def _start_training(self):
@@ -465,6 +473,8 @@ class RLDashboard:
         self._best_reward = -float("inf")
         self._tree.delete(*self._tree.get_children())
         self._full_log_lines.clear()
+        if hasattr(self, '_tls_timing_lines'):
+            self._tls_timing_lines.clear()
         self._stop_event.clear()
 
         # Disable controls

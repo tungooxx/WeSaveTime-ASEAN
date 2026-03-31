@@ -368,8 +368,9 @@ def generate_demand():
         trip_file = os.path.join(SCRIPT_DIR, f"danang.{prefix}.trips.xml")
         trip_files.append(trip_file)
 
-        # Spawn vehicles in first 600s, leaving 300s for network to drain
-        depart_end = 600
+        # Spawn vehicles in first 2/3 of sim, leaving 1/3 for network to drain
+        sim_duration = 900  # real seconds (matches sim_length=1800 @ step=0.5)
+        depart_end = int(sim_duration * 2 / 3)
         cmd = [
             sys.executable, randomTrips,
             "-n", NET_FILE,
@@ -386,7 +387,9 @@ def generate_demand():
             "--random",
             "--weights-prefix", WEIGHTS_PREFIX,  # major roads get way more traffic
         ]
-        run(cmd, f"Generating {count} {vtype} trips")
+        if not run(cmd, f"Generating {count} {vtype} trips"):
+            print(f"  FATAL: Failed to generate {vtype} trips, aborting.")
+            sys.exit(1)
 
     # Merge all trip files into one
     print("\nMerging trip files...")
