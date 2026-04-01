@@ -78,17 +78,18 @@ class ActorCritic(nn.Module):
         self.act_dim = act_dim
 
         if action_mode == "continuous":
-            # Continuous actor: obs -> unbounded mean + learnable log_std
-            # TanhNormal squashes output to (0,1) — no sigmoid needed here
+            # Continuous actor: obs -> unbounded mean vector + learnable log_std
+            # Level 2: act_dim = MAX_GREEN_PHASES (7) for per-phase duration splits
+            # TanhNormal squashes each element to (0,1) — no sigmoid needed
             self.actor_backbone = nn.Sequential(
                 nn.Linear(obs_dim, hidden),
                 nn.ReLU(),
                 nn.Linear(hidden, hidden),
                 nn.ReLU(),
             )
-            self.actor_mean = nn.Linear(hidden, 1)
+            self.actor_mean = nn.Linear(hidden, act_dim)
             # Init log_std=-1 → std≈0.37, tighter than 1.0 for faster convergence
-            self.actor_log_std = nn.Parameter(torch.full((1,), -1.0))
+            self.actor_log_std = nn.Parameter(torch.full((act_dim,), -1.0))
         else:
             # Discrete actor: obs -> action logits
             self.actor = nn.Sequential(
@@ -308,7 +309,9 @@ class MAPPOAgent:
             if self.action_mode == "continuous":
                 action = dist.mean if greedy else dist.sample()
                 log_prob = dist.log_prob(action)
-                return float(action.item()), float(log_prob.item()), float(value.item())
+                # Return action as numpy array (shape: act_dim,) for per-phase splits
+                return (action.squeeze(0).cpu().numpy(),
+                        float(log_prob.item()), float(value.item()))
             else:
                 if greedy:
                     action = dist.probs.argmax(dim=-1)
@@ -366,7 +369,9 @@ class MAPPOAgent:
                 # Recompute
                 dist = self.network.forward_actor(obs_t, mask_t)
                 if is_cont:
-                    new_lp = dist.log_prob(actions_t.unsqueeze(-1))
+                    # actions_t shape: (batch, act_dim) — no unsqueeze needed
+                    # TanhNormal.log_prob sums over dim=-1 → (batch,)
+                    new_lp = dist.log_prob(actions_t)
                 else:
                     new_lp = dist.log_prob(actions_t)
                 entropy = dist.entropy().mean()

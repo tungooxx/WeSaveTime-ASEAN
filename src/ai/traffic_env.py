@@ -5,16 +5,19 @@ Each TLS (traffic light system) in the SUMO network is an independent
 agent that shares the same neural network (parameter sharing).
 The environment provides per-TLS observations and per-TLS rewards.
 
-Observation per TLS (fixed 39-dim vector):
-    [queue(12), wait(12), density(12), phase_ratio, elapsed, min_green]
+Observation per TLS (fixed 63-dim vector):  [Level 2]
+    [queue(12), wait(12), density(12),        local (39)
+     phase_ratio, elapsed, min_green,
+     upstream_queue(12), upstream_wait(12)]   upstream awareness (24)
 
-Action per TLS (duration-only):
-    Phases auto-cycle in fixed SUMO order — the AI only picks how long
-    each phase lasts.  Like real Vietnamese signals with countdown displays,
-    the phase order is predictable and the duration is committed upfront.
+Action per TLS:
+    Phases auto-cycle in fixed SUMO order.  The AI picks how long each
+    phase lasts — committed upfront like Vietnamese countdown displays.
 
     discrete mode: index 0..N-1 → N duration levels from min to max green
-    continuous mode: float 0.0-1.0 → mapped to [min_green, max_green]
+    continuous mode: vector of MAX_GREEN_PHASES floats in [0,1].
+                     Element [i] maps to duration for green phase i.
+                     Only element [cycle_index % n_phases] is used per step.
 """
 
 from __future__ import annotations
@@ -40,25 +43,29 @@ MIN_GREEN_STEPS = 60         # fallback minimum green (30s real @ step_length=0.
 
 # Action mode: "discrete" or "continuous"
 # discrete: N levels evenly spread between min and max green (ACT_DIM = N)
-# continuous: single float 0.0-1.0 mapped to min-max range (ACT_DIM = 1)
+# continuous: vector of MAX_GREEN_PHASES floats in [0,1] (ACT_DIM = MAX_GREEN_PHASES)
+#   — element [i] sets duration for green phase i (per-phase splits, Level 2)
 ACTION_MODE = "discrete"     # default, overridden per-env
 
 # Observation layout per TLS (fixed size for parameter sharing):
-#   [0..11]   queue per edge          (12)
-#   [12..23]  wait per edge           (12)
-#   [24..35]  lane density per edge   (12)
-#   [36]      current phase ratio     (1)
-#   [37]      elapsed time ratio      (1)
-#   [38]      min_green satisfied     (1)
-OBS_DIM = MAX_INCOMING_EDGES * 3 + 3   # 39 (Level 1: no pressure, no events)
+#   [0..11]   queue per edge              (12)  local
+#   [12..23]  wait per edge               (12)  local
+#   [24..35]  lane density per edge       (12)  local
+#   [36]      current phase ratio         (1)
+#   [37]      elapsed time ratio          (1)
+#   [38]      min_green satisfied         (1)
+#   [39..50]  upstream queue per edge     (12)  Level 2: upstream awareness
+#   [51..62]  upstream wait per edge      (12)  Level 2: upstream awareness
+OBS_DIM = MAX_INCOMING_EDGES * 5 + 3   # 63 (Level 2: + upstream queue + wait)
+L1_OBS_DIM = MAX_INCOMING_EDGES * 3 + 3  # 39 (Level 1 layout, backward compat)
 OLD_OBS_DIM = MAX_INCOMING_EDGES * 2 + 2  # 26 (v1 layout)
-# Duration-only action space (phases auto-cycle):
+# Action space:
 # discrete mode: ACT_DIM = num_duration_levels (default 7)
-# continuous mode: ACT_DIM = 1 (single float)
+# continuous mode: ACT_DIM = MAX_GREEN_PHASES = 7 (per-phase duration splits)
 ACT_DIM = DEFAULT_DURATION_LEVELS  # overridden by env __init__
 
 
-V2_OBS_DIM = MAX_INCOMING_EDGES * 3 + 3  # 39 (same as OBS_DIM now)
+V2_OBS_DIM = L1_OBS_DIM  # alias for Level-1 layout (backward compat)
 
 
 def remap_obs_for_old_model(obs_new: np.ndarray, target_dim: int = OLD_OBS_DIM
@@ -67,7 +74,8 @@ def remap_obs_for_old_model(obs_new: np.ndarray, target_dim: int = OLD_OBS_DIM
 
     Supported target dims:
       26 (v1): [queue(12), wait(12), phase_ratio, elapsed]
-      39 (current): [queue(12), wait(12), density(12), phase_ratio, elapsed, min_green]
+      39 (Level 1): [queue(12), wait(12), density(12), phase_ratio, elapsed, min_green]
+      63 (Level 2 / current): full layout with upstream slots
     """
     if target_dim == OLD_OBS_DIM:  # 26
         obs = np.zeros(OLD_OBS_DIM, dtype=np.float32)
@@ -76,7 +84,9 @@ def remap_obs_for_old_model(obs_new: np.ndarray, target_dim: int = OLD_OBS_DIM
         obs[24] = obs_new[MAX_INCOMING_EDGES * 3]           # phase_ratio (slot 36)
         obs[25] = obs_new[MAX_INCOMING_EDGES * 3 + 1]       # elapsed (slot 37)
         return obs
-    elif target_dim == V2_OBS_DIM:  # 39 (same as current OBS_DIM)
+    elif target_dim == L1_OBS_DIM:  # 39 — Level 1 layout (strip upstream slots)
+        return obs_new[:L1_OBS_DIM].copy()
+    elif target_dim == OBS_DIM:  # 63 — current Level 2 layout
         return obs_new.copy()
     else:
         return obs_new[:target_dim]
@@ -238,13 +248,34 @@ class SumoTrafficEnv(gym.Env):
         #     tid: {} for tid in self.tls_ids
         # }
 
+        # ── Level 2: Upstream edge lookup ────────────────────────────
+        # For each TLS's i-th incoming edge, store the upstream edge feeding
+        # into that edge's source node.  Enables anticipatory control.
+        self._upstream_edges: dict[str, list[str]] = {}
+        for tls in self._tls_list:
+            upstream_per_inc: list[str] = []
+            for eid in tls.incoming_edges[:MAX_INCOMING_EDGES]:
+                try:
+                    e = self._net.getEdge(eid)
+                    from_node = e.getFromNode()
+                    upstream = [
+                        ue.getID() for ue in from_node.getIncoming()
+                        if not ue.getID().startswith(":")
+                    ]
+                    upstream_per_inc.append(upstream[0] if upstream else "")
+                except Exception:
+                    upstream_per_inc.append("")
+            self._upstream_edges[tls.id] = upstream_per_inc
+
         # ── Gym spaces (per-agent, shared definition) ────────────────
         self.observation_space = gym.spaces.Box(
             low=0.0, high=1.0, shape=(OBS_DIM,), dtype=np.float32
         )
         if self.action_mode == "continuous":
-            self.act_dim = 1
-            self.action_space = gym.spaces.Box(low=0.0, high=1.0, shape=(1,))
+            # Level 2: one float per green phase (per-phase duration splits)
+            self.act_dim = MAX_GREEN_PHASES
+            self.action_space = gym.spaces.Box(
+                low=0.0, high=1.0, shape=(MAX_GREEN_PHASES,))
         else:
             self.act_dim = self.num_duration_levels
             self.action_space = gym.spaces.Discrete(self.act_dim)
@@ -279,6 +310,10 @@ class SumoTrafficEnv(gym.Env):
         self._committed_green: dict[str, int] = {}  # initial countdown when phase changed (for logging)
         self._cycle_index: dict[str, int] = {}  # index into green_phases for auto-cycling
 
+        # Level 2: time-averaged wait integral (accumulated each reward call)
+        self._wait_integral: dict[str, float] = {}
+        self._metric_step_count: int = 0
+
     # ── Properties ────────────────────────────────────────────────────
 
     @property
@@ -297,24 +332,28 @@ class SumoTrafficEnv(gym.Env):
             return [0]  # locked — only no-op/min-duration valid
         return list(range(self.num_duration_levels))
 
-    def decode_duration_steps(self, tls_id: str, action) -> int:
-        """Convert action to duration in sim steps.
+    def decode_duration_steps(self, tls_id: str, action, phase_ci: int = 0) -> int:
+        """Convert action to duration in sim steps for the current phase.
 
         Discrete mode: action is an int index into duration_levels.
-        Continuous mode: action is a float 0.0-1.0 mapped to min-max range.
+        Continuous mode: action is a vector of MAX_GREEN_PHASES floats in [0,1].
+          phase_ci selects which element corresponds to the current phase.
+          Each element maps to [per_min_green, per_max_green] for that TLS.
         """
-        levels = self._duration_levels.get(tls_id, [60])
-        mn = self._flex_min_steps
-        mx = self._flex_max_steps
-
         if self.action_mode == "continuous":
-            t = float(action) if not hasattr(action, '__len__') else float(action[0])
+            if hasattr(action, '__len__'):
+                # Per-phase vector: select element for current cycle position
+                n_phases = len(self._green_phases.get(tls_id, [0]))
+                idx = phase_ci % max(n_phases, 1)
+                t = float(action[idx % len(action)])
+            else:
+                t = float(action)
             t = max(0.0, min(1.0, t))
-            # Use per-TLS bounds so ped crossings don't inflate the range
-            per_mn = self._min_green_steps.get(tls_id, mn)
-            per_mx = self._max_green_steps.get(tls_id, mx)
+            per_mn = self._min_green_steps.get(tls_id, self._flex_min_steps)
+            per_mx = self._max_green_steps.get(tls_id, self._flex_max_steps)
             return int(per_mn + t * (per_mx - per_mn))
         else:
+            levels = self._duration_levels.get(tls_id, [60])
             idx = min(int(action), len(levels) - 1)
             return levels[idx]
 
@@ -432,6 +471,8 @@ class SumoTrafficEnv(gym.Env):
         self._countdown.clear()
         self._committed_green.clear()
         self._cycle_index.clear()
+        self._wait_integral.clear()
+        self._metric_step_count = 0
 
         # Initialise per-TLS tracking and validate green phases at runtime
         for tls_id in self.tls_ids:
@@ -521,8 +562,11 @@ class SumoTrafficEnv(gym.Env):
             target_phase = green_phases[next_ci]
             self._cycle_index[tls_id] = next_ci
 
-            # Decode AI action -> duration in sim steps
-            chosen_duration[tls_id] = self.decode_duration_steps(tls_id, action_idx)
+            # Decode AI action -> duration for current phase (Level 2: per-phase)
+            chosen_duration[tls_id] = self.decode_duration_steps(
+                tls_id, action_idx,
+                phase_ci=self._cycle_index.get(tls_id, 0)
+            )
 
             # Set target phase state
             tls_info = self._tls_map.get(tls_id)
@@ -714,30 +758,33 @@ class SumoTrafficEnv(gym.Env):
         return {tls_id: self._obs_for(tls_id) for tls_id in self.tls_ids}
 
     def _obs_for(self, tls_id: str) -> np.ndarray:
-        """Build a fixed-size (OBS_DIM,) observation vector for one TLS.
+        """Build a fixed-size (OBS_DIM=63,) observation vector for one TLS.
 
-        Layout: [queue(12), wait(12), density(12),
-                 phase_ratio, elapsed, min_green]
+        Layout:
+          [0..11]  queue per local incoming edge         (12)
+          [12..23] wait per local incoming edge          (12)
+          [24..35] lane density per local incoming edge  (12)
+          [36]     current phase ratio                   (1)
+          [37]     elapsed green time ratio              (1)
+          [38]     (reserved, zero)                      (1)
+          [39..50] upstream queue per incoming edge      (12)  Level 2
+          [51..62] upstream wait per incoming edge       (12)  Level 2
         """
         vec = np.zeros(OBS_DIM, dtype=np.float32)
         tls_info = self._tls_map.get(tls_id)
         if tls_info is None:
             return vec
 
-        off_q = 0                        # queue slots
-        off_w = MAX_INCOMING_EDGES       # wait slots
-        off_d = MAX_INCOMING_EDGES * 2   # density slots
-        # [Level 2 REMOVED] off_e = MAX_INCOMING_EDGES * 3   # event blocked slots
+        off_q  = 0                        # local queue
+        off_w  = MAX_INCOMING_EDGES       # local wait
+        off_d  = MAX_INCOMING_EDGES * 2   # local density
+        off_uq = MAX_INCOMING_EDGES * 3 + 3  # upstream queue  [39..50]
+        off_uw = MAX_INCOMING_EDGES * 4 + 3  # upstream wait   [51..62]
 
-        # [Level 2 REMOVED] Collect edges affected by active events
-        # affected_edges: set[str] = set()
-        # n_events = 0
-        # if self._event_manager:
-        #     for evt in self._event_manager.get_active():
-        #         affected_edges.update(evt.affected_edges)
-        #         n_events += 1
+        upstream_edges = self._upstream_edges.get(tls_id, [])
 
         for i, edge_id in enumerate(tls_info.incoming_edges[:MAX_INCOMING_EDGES]):
+            # ── Local edge metrics ──────────────────────────────────
             try:
                 q = self._conn.edge.getLastStepHaltingNumber(edge_id)
                 w = self._conn.edge.getWaitingTime(edge_id)
@@ -749,8 +796,19 @@ class SumoTrafficEnv(gym.Env):
             vec[off_q + i] = min(q / 50.0, 1.0)
             vec[off_w + i] = min(w / 300.0, 1.0)
             vec[off_d + i] = min(density, 1.0)
-            # [Level 2 REMOVED] Event flag
-            # vec[off_e + i] = 1.0 if edge_id in affected_edges else 0.0
+
+            # ── Upstream edge metrics (Level 2) ─────────────────────
+            upstream_eid = upstream_edges[i] if i < len(upstream_edges) else ""
+            if upstream_eid:
+                try:
+                    uq = self._conn.edge.getLastStepHaltingNumber(upstream_eid)
+                    uw = self._conn.edge.getWaitingTime(upstream_eid)
+                except traci.TraCIException:
+                    uq, uw = 0, 0.0
+            else:
+                uq, uw = 0, 0.0
+            vec[off_uq + i] = min(uq / 50.0, 1.0)
+            vec[off_uw + i] = min(uw / 300.0, 1.0)
 
         # Current phase ratio
         cur_phase = self._current_phases.get(tls_id, 0)
@@ -764,11 +822,8 @@ class SumoTrafficEnv(gym.Env):
         max_g = self._max_green_steps.get(tls_id, 120)
         vec[MAX_INCOMING_EDGES * 3 + 1] = min(actual_green_elapsed / max_g, 1.0)
 
-        # Slot [38]: unused (was min-green flag, removed — no fixed constraints)
+        # Slot [38]: reserved (zero)
         vec[MAX_INCOMING_EDGES * 3 + 2] = 0.0
-
-        # [Level 2 REMOVED] Number of active events (normalized)
-        # vec[MAX_INCOMING_EDGES * 4 + 3] = min(n_events / 5.0, 1.0)
 
         return vec
 
@@ -777,7 +832,8 @@ class SumoTrafficEnv(gym.Env):
     def _compute_rewards(self, changed_tls_set: set[str] | None = None) -> dict[str, float]:
         rewards: dict[str, float] = {}
 
-        # [Level 1] Pure timing optimization
+        # Level 2: increment step counter for time-averaged wait
+        self._metric_step_count += 1
 
         # ── Per-TLS reward ──────────────────────────────────────────────
         for tls_id in self.tls_ids:
@@ -821,6 +877,14 @@ class SumoTrafficEnv(gym.Env):
             ar = self._allred_steps.get(tls_id, 4)
             tc = (yw + ar) / max(self._avg_transition, 1)
 
+            # Level 2: accumulate wait integral for time-averaging
+            self._wait_integral[tls_id] = (
+                self._wait_integral.get(tls_id, 0.0) + total_wait
+            )
+            time_avg_wait = (
+                self._wait_integral[tls_id] / self._metric_step_count
+            )
+
             raw_reward = compute_tls_reward(
                 old_waiting=self._prev_waiting.get(tls_id, 0.0),
                 new_waiting=total_wait,
@@ -830,6 +894,7 @@ class SumoTrafficEnv(gym.Env):
                 pressure=pressure,
                 phase_changed=(tls_id in changed_tls_set) if changed_tls_set else False,
                 transition_cost=tc,
+                cumulative_wait=time_avg_wait,
             )
 
             # Apply importance weighting
@@ -865,12 +930,18 @@ class SumoTrafficEnv(gym.Env):
             vehicles = self._conn.vehicle.getIDCount()
         except traci.TraCIException:
             pass
+        # Time-averaged wait: integral of wait / number of reward calls
+        total_integral = sum(self._wait_integral.values())
+        n_steps = max(self._metric_step_count, 1)
+        time_avg = round(total_integral / (n_steps * max(count, 1)), 2)
+
         return {
             "avg_wait_time": round(total_wait / n, 2),
             "avg_queue_length": round(total_queue / n, 2),
             "total_vehicles": vehicles,
             "throughput": self._total_throughput,
             "sim_time": self._sim_step,
+            "time_avg_wait": time_avg,
         }
 
     # [Level 2 REMOVED] Random event injection and active events — deleted

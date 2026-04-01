@@ -312,12 +312,68 @@ Final performance comparison after all Level 1 optimizations, averaged over 3 ev
 
 ---
 
-## Future: Level 2 (Planned)
+## Level 2: Per-Phase Splits + Upstream Awareness + Time-Averaged Wait
 
-Level 2 will extend the system with dynamic traffic event handling and multi-city generalization:
+Level 2 builds on the -98% wait result from Level 1 with three targeted improvements to the observation, action, and reward design.
 
-- **Random traffic events** (accidents, road closures, VIP convoys, weather) via `EventManager`
-- **Adaptive event response** --- agent learns to reroute traffic around disruptions  
-- **Multi-city transfer** --- test whether the Hai Chau-trained policy generalizes to Hanoi/Ho Chi Minh City networks
-- **Green wave coordination** --- explicit neighbor communication between adjacent TLS agents
-- **Demand prediction** --- short-horizon vehicle count forecasting to improve anticipatory switching
+---
+
+### Phase 9: Per-Phase Green Splits
+
+**Goal:** Give the agent independent control over how long each approach gets green within one cycle, instead of committing the same duration to every phase.
+
+- **Action space: 1-dim → 7-dim vector** (`traffic_env.py`, `mappo_agent.py`)
+  - Action is now `np.array` of shape `(MAX_GREEN_PHASES=7,)` sampled from a TanhNormal
+  - At each decision step, element `[cycle_index % n_phases]` is used for the current phase
+  - For a 2-phase intersection: element [0] = N-S duration, element [1] = E-W duration
+  - Unused elements ([2]–[6] for 2-phase TLS) are sampled but ignored
+  - Agent can independently set longer green for heavy approaches and shorter for light ones
+
+- **Actor output: 1-dim → act_dim** (`mappo_agent.py`)
+  - `actor_mean = nn.Linear(hidden, act_dim)` (was `Linear(hidden, 1)`)
+  - `actor_log_std = nn.Parameter(torch.full((act_dim,), -1.0))` (was scalar)
+  - TanhNormal log_prob already sums over `dim=-1`, so PPO ratios work correctly
+
+- **decode_duration_steps now phase-aware** (`traffic_env.py`)
+  - Takes `phase_ci` (cycle index) to select the correct action element
+  - Per-TLS bounds still apply: each TLS maps its element to its own [min_green, max_green]
+
+---
+
+### Phase 10: Upstream Awareness
+
+**Goal:** Enable anticipatory control — agent sees vehicles approaching *before* they arrive.
+
+- **Upstream edge precomputation** (`traffic_env.py`)
+  - For each incoming edge E to TLS X, finds the edge feeding into E's source node
+  - Stored as `_upstream_edges[tls_id][i]` at environment init (zero TraCI cost per step)
+
+- **Observation: 39-dim → 63-dim** (`traffic_env.py`)
+  - Added 24 new slots to the observation vector
+  - Slots [39..50]: upstream queue (halting vehicles one hop upstream, /50)
+  - Slots [51..62]: upstream wait (cumulative waiting time one hop upstream, /300)
+  - If no upstream edge exists for a slot (dead-end roads), the slot is zero
+
+- **Critic input: 78-dim → 126-dim** (`mappo_agent.py`)
+  - `Linear(obs_dim * 2, hidden)` scales automatically with new OBS_DIM=63
+
+---
+
+### Phase 11: Time-Averaged Wait Metric
+
+**Goal:** Optimize the whole episode rather than just the final state snapshot.
+
+- **Running wait integral** (`traffic_env.py`)
+  - `_wait_integral[tls_id]` accumulates total_wait at every `_compute_rewards()` call
+  - `_metric_step_count` counts how many reward calls have occurred in this episode
+  - `time_avg_wait = integral / step_count` is the running mean of congestion
+
+- **Cumulative wait reward term** (`reward.py`)
+  - New term: `-w_cumwait * clip(time_avg_wait / 300, 0, 1)` with `w_cumwait = 0.05`
+  - Small weight (5%) to complement rather than dominate the pressure-primary signal
+  - Penalizes agents that allow persistent congestion to build across the episode
+
+- **`time_avg_wait` in training log** (`train.py`, `watch_training.py`)
+  - `get_metrics()` returns `time_avg_wait` alongside the existing snapshot `avg_wait_time`
+  - Episode log records both; `watch_training.py` displays `TAWait=` column
+  - Best model saving gate unchanged (uses end-of-episode `avg_wait_time` + throughput)

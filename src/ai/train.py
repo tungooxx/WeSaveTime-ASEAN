@@ -906,6 +906,7 @@ def train_mappo_parallel(
                 "steps": len(result["transitions"]) // n_agents,
                 "time_s": round(elapsed / batch_size, 1),
                 "avg_wait": metrics.get("avg_wait_time", 0),
+                "time_avg_wait": metrics.get("time_avg_wait", 0),
                 "avg_queue": metrics.get("avg_queue_length", 0),
                 "vehicles": metrics.get("total_vehicles", 0),
                 "collisions": 0,

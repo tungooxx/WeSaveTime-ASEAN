@@ -2,7 +2,7 @@
 
 > AI-Adaptive Traffic Signal Control for Vietnamese Smart Cities
 
-**Version:** Level 1 (Pure Timing Optimization)
+**Version:** Level 2 (Per-Phase Splits + Upstream Awareness + Time-Averaged Wait)
 **Target:** Hai Chau District, Da Nang, Vietnam
 **Stack:** SUMO Simulator + Gymnasium + PyTorch + TraCI
 
@@ -30,11 +30,16 @@ FlowMind AI is a multi-agent reinforcement learning system that controls traffic
 
 **Core approach:**
 - **Multi-Agent Proximal Policy Optimization (MAPPO)** with shared parameters controls all 83 traffic light systems (TLS) simultaneously — 10 multi-phase real intersections and 73 pedestrian crossings.
-- Each TLS is an independent agent that observes local traffic conditions and selects a continuous green duration via a **TanhNormal** policy (bounded [0,1], mapped to per-TLS min/max seconds).
+- Each TLS is an independent agent that observes local **and upstream** traffic conditions and selects a **per-phase duration vector** via a **TanhNormal** policy (bounded [0,1], mapped per-TLS to per-phase min/max seconds).
 - All agents share a single neural network (parameter sharing), enabling knowledge transfer between intersections of different sizes.
 - The system is built on the SUMO (Simulation of Urban Mobility) microsimulator, interfaced via TraCI, and wrapped in a Gymnasium-compatible environment for standard RL training.
 
-**Key results (Level 1):**
+**Level 2 additions over Level 1:**
+1. **Per-phase green splits** — action is a 7-dim vector; each element controls the duration for one green phase. The agent independently decides how long each approach gets green within a cycle (not one global duration).
+2. **Upstream awareness** — observations include queue and wait from edges *feeding into* each incoming road, enabling anticipatory rather than purely reactive control.
+3. **Time-averaged wait** — reward includes a cumulative wait term (running average over the episode) and training logs report `time_avg_wait` so the agent optimizes every second, not just the final snapshot.
+
+**Key results (Level 1 baseline):**
 - **-98% average wait time** (32.1s to 0.8s)
 - **-88% average queue length** (0.2 to 0.0 vehicles)
 - **Throughput maintained** (1,479 to 1,468 arrived vehicles, -1%)
@@ -297,7 +302,7 @@ The environment wraps SUMO via TraCI and presents a standard Gymnasium interface
 
 ### Observation Space
 
-**Per-TLS observation:** 39-dimensional float vector, all values normalized to [0, 1].
+**Per-TLS observation:** 63-dimensional float vector, all values normalized to [0, 1].
 
 | Slots | Feature | Normalization | Description |
 |-------|---------|---------------|-------------|
@@ -306,28 +311,34 @@ The environment wraps SUMO via TraCI and presents a standard Gymnasium interface
 | 24--35 | Lane density per edge | `veh/capacity` | Vehicle count / edge capacity (lanes * length / 7.5m) |
 | 36 | Phase ratio | `phase_idx / num_phases` | Current phase index normalized by total phases |
 | 37 | Elapsed green time | `/max_green` | Actual green elapsed, normalized by per-TLS max green |
-| 38 | Min-green satisfied | Binary (0/1) | Whether elapsed green >= per-TLS min_green threshold |
+| 38 | Reserved | 0 | Unused slot (reserved for future use) |
+| 39--50 | **Upstream queue** | `/50` vehicles | Halting vehicles on upstream edge (one hop before each incoming edge) |
+| 51--62 | **Upstream wait** | `/300` seconds | Waiting time on upstream edge (anticipatory signal) |
 
 Edges are padded/truncated to a fixed 12 slots (`MAX_INCOMING_EDGES = 12`) to enable parameter sharing across intersections with different numbers of approaches.
 
+**Upstream awareness (slots 39--62):** For each incoming edge E of TLS X, the upstream edge is the most prominent edge feeding into E's source node. If upstream node N has a queue of 40 vehicles approaching TLS X, the agent can preemptively extend green for that approach before the queue physically arrives at X.
+
 ### Action Space
 
-**Continuous (TanhNormal):** A single float in [0, 1] representing the desired green duration, mapped per-TLS to its own [min_green, max_green] range.
+**Continuous (TanhNormal, per-phase vector):** A 7-dimensional float vector in [0, 1]^7. Each element corresponds to one of up to `MAX_GREEN_PHASES = 7` possible green phases. At each decision step, only element `[cycle_index % n_phases]` is used — it sets the duration for the phase currently being committed.
 
 ```text
-action ~ TanhNormal(mean, std)
-duration = per_tls_min + action * (per_tls_max - per_tls_min)
+action ~ TanhNormal(mean_vec, std_vec)    # shape: (7,)
+t = action[cycle_index % n_phases]        # select element for current phase
+duration = per_tls_min + t * (per_tls_max - per_tls_min)
 ```
 
-The policy outputs `mean` and `log_std`. The action is sampled as `(tanh(u) + 1) / 2` where `u ~ Normal(mean, std)`. Correct log_prob requires a Jacobian correction:
-
-```text
-log P(action) = log P(u) - log(1 - tanh²(u))
-```
+**Per-phase semantics:** For a 2-phase intersection (N-S, E-W), element [0] controls the N-S green duration, element [1] controls E-W. If the N-S approach is congested, the actor can learn to output a high value for [0] and a low value for [1], allocating more green time proportionally. Unused elements ([2]–[6]) are sampled but ignored.
 
 **Why per-TLS bounds matter:** Using global min/max (10.5s–123s across all 83 TLS) caused action=0.5 to map to 66.5s green, producing 200s+ cycles. Per-TLS bounds ensure action=0.5 maps to the midpoint of *that* intersection's reasonable range (e.g., 22–45s for medium intersections).
 
-There is **no phase selection** for single-phase TLS (pedestrian crossings) — they have only one green phase. The agent only controls duration. Multi-phase intersections have phase selection implicitly via the committed phase at the last decision step.
+**TanhNormal log_prob** includes the Jacobian correction for the change-of-variables through tanh, and sums over the action dimension:
+
+```text
+log P(action) = Σᵢ [log P(uᵢ) - log(1 - tanh²(uᵢ))]
+where uᵢ = atanh(actionᵢ * 2 - 1)
+```
 
 ### Step Function: Tick-by-Tick State Machine
 
@@ -390,13 +401,13 @@ The reward function follows a **pressure-primary** design, inspired by the **Pre
 
 ### Reward Terms
 
-The per-TLS reward is a weighted sum of five terms:
+The per-TLS reward is a weighted sum of six terms:
 
 ```text
-reward = pressure_term + queue_term + wait_term + throughput_term + switch_term
+reward = pressure_term + queue_term + wait_term + throughput_term + switch_term + cumwait_term
 ```
 
-**Overall range:** approximately -0.7 to +0.5 per step.
+**Overall range:** approximately -0.75 to +0.5 per step.
 
 | Term | Weight | Formula | Purpose |
 |------|--------|---------|---------|
@@ -405,6 +416,7 @@ reward = pressure_term + queue_term + wait_term + throughput_term + switch_term
 | **Wait improvement** | 0.20 | `-w_wait * clip(delta_wait / 50, -1, 1)` | Reward decrease in total waiting time on incoming edges. |
 | **Throughput** | 0.10 | `+w_throughput * clip((old_tp - new_tp) / 10, -1, 1)` | Reward reduction in vehicles on incoming edges (they've passed through). |
 | **Switch penalty** | 0.05 | `-w_switch * transition_cost` (if changed) | Discourage unnecessary phase changes. Scaled by per-TLS transition cost. |
+| **Cumulative wait** | 0.05 | `-w_cumwait * clip(time_avg_wait / 300, 0, 1)` | **Level 2.** Penalize persistent congestion over the episode (running mean of wait). |
 
 ### Term Details
 
@@ -429,6 +441,8 @@ transition_cost = (yellow_steps + allred_steps) / avg_transition_across_all_TLS
 
 Large intersections (longer yellow + all-red clearance) are penalized more for switching, reflecting the real cost of lost green time during transitions.
 
+**Cumulative Wait (w_cumwait=0.05):** Level 2 addition. Tracks `_wait_integral[tls_id] / metric_step_count` — a running average of total waiting time on incoming edges across all steps so far. An agent that clears congestion quickly early gets a better cumulative score than one that delays until the end. This prevents "last-minute clearing" strategies.
+
 ---
 
 ## 7. MAPPO Agent
@@ -444,26 +458,27 @@ The MAPPO (Multi-Agent Proximal Policy Optimization) agent implements the **Cent
 
 ```text
 ACTOR (local obs -> TanhNormal distribution):
-    Linear(39, 256) -> ReLU
+    Linear(63, 256) -> ReLU
     Linear(256, 256) -> ReLU
-    Linear(256, 1)   -> mean (unbounded)
-    log_std           -> learnable scalar, clamped [-4, 2]
-    → TanhNormal(mean, exp(log_std))  # samples in [0, 1]
+    Linear(256, 7)   -> mean vector (unbounded, 7 = MAX_GREEN_PHASES)
+    log_std           -> learnable 7-dim vector, clamped [-4, 2]
+    → TanhNormal(mean, exp(log_std))  # 7 samples in [0, 1]
 
 CRITIC (local obs + global obs -> value):
-    Linear(78, 256) -> ReLU       # 39 local + 39 global = 78
+    Linear(126, 256) -> ReLU      # 63 local + 63 global = 126
     Linear(256, 256) -> ReLU
     Linear(256, 1)   -> state value
 ```
 
-**Global observation:** Mean of all agent observations (aggregated view of network-wide traffic state).
+**Global observation:** Mean of all agent observations (aggregated view of network-wide traffic state, includes upstream data from all 83 TLS).
 
-**TanhNormal log_prob** must include the Jacobian correction for the change-of-variables through tanh. Without it, PPO ratios are wrong and entropy gets stuck at 1.7 (near-uniform):
+**TanhNormal log_prob** must include the Jacobian correction and sum over all 7 action dimensions. Without the correction, PPO ratios are wrong and entropy drifts toward 1.7 (near-uniform) per dimension:
 
 ```python
-u = atanh(action * 2 - 1)               # inverse tanh, clamped for stability
-lp = Normal(mean, std).log_prob(u)
+u = atanh(action * 2 - 1)                   # inverse tanh, clamped for stability
+lp = Normal(mean, std).log_prob(u)           # shape: (batch, 7)
 lp = lp - log(0.5 * (1 - tanh(u)²) + eps)  # Jacobian correction
+log_prob = lp.sum(dim=-1)                    # sum over 7 dims → (batch,)
 ```
 
 ### Rollout Buffer and GAE
