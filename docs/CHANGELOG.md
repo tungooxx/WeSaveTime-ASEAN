@@ -6,7 +6,7 @@
 
 ## Level 1: Pure Timing Optimization
 
-Level 1 focuses exclusively on optimizing traffic signal timing for the 34 non-trivial intersections in Hai Chau District, Da Nang. No structural changes to the road network (adding/removing TLS) are made at this level.
+Level 1 focuses exclusively on optimizing traffic signal timing for all 83 TLS in Hai Chau District, Da Nang. No structural changes to the road network (adding/removing TLS) are made at this level.
 
 ---
 
@@ -217,69 +217,107 @@ Level 1 focuses exclusively on optimizing traffic signal timing for the 34 non-t
 
 **Goal:** Rebalance reward weights based on PressLight research and empirical training results.
 
-- **Pressure-primary reward (w_pressure: 0.10 -> 0.30)**
+- **Pressure-primary reward (w_pressure: 0.10 -> 0.40)**
   - Inspired by PressLight (Wei et al., KDD 2019)
   - Pressure (outgoing - incoming vehicles) is the most theoretically grounded signal for throughput
-  - Increased from secondary (0.10) to primary weight (0.30)
-  - Computed per-TLS using SUMO node's outgoing vs incoming vehicle counts
+  - Increased to primary weight (0.40)
 
-- **Wait reduced to secondary (w_wait: 0.40 -> 0.25)**
-  - Wait time improvement was previously the dominant signal
-  - Demoted to allow pressure to drive learning
-  - Still important for user-facing metrics but less critical for policy optimization
+- **Removed broken global baseline bonus**
+  - A global bonus compared network-wide wait against `baseline_wait=25.0`
+  - Actual wait was always >>25 so every agent received **-0.5 penalty every step** (~-2400 total per episode)
+  - This constant penalty made the reward signal completely uninformative
+  - Removed entirely --- reward now depends only on the agent's own traffic state
 
 - **Switch penalty scaled by per-TLS transition cost**
   - `transition_cost = (yellow_steps + allred_steps) / avg_transition`
   - Large intersections (longer yellow + all-red) have higher transition cost
   - Small intersections can switch more freely (shorter lost time)
-  - Average across all TLS normalized to ~1.0
-
-- **Throughput weight increased (w_throughput: 0.05 -> 0.10)**
-  - Doubled to provide stronger signal for vehicle completion
-  - Computed as change in vehicle count on incoming edges
-
-- **Queue and fairness weights**
-  - Queue: 0.15 (unchanged)
-  - Fairness: 0.05 (unchanged)
-  - Max-queue fairness prevents approach starvation
 
 - **Final reward weight distribution:**
 
   | Term | Weight | Direction |
   |------|--------|-----------|
-  | Pressure | 0.30 | + (higher is better) |
-  | Wait improvement | 0.25 | + (lower wait is better) |
-  | Queue penalty | 0.15 | - (lower queue is better) |
-  | Switch penalty | 0.15 | - (fewer switches is better) |
+  | Pressure | 0.40 | + (higher is better) |
+  | Wait improvement | 0.20 | + (lower wait is better) |
+  | Queue penalty | 0.25 | - (lower queue is better) |
   | Throughput | 0.10 | + (more throughput is better) |
-  | Fairness | 0.05 | - (lower max-queue is better) |
+  | Switch penalty | 0.05 | - (fewer switches is better) |
+
+---
+
+### Phase 8: Continuous Action Space + All-TLS Control
+
+**Goal:** Switch from discrete 7-level actions to continuous duration control, and extend AI control to all 83 TLS.
+
+- **TanhNormal distribution for continuous PPO** (`mappo_agent.py`)
+  - Replaced discrete 7-level action space with a continuous TanhNormal policy
+  - Actor outputs `mean` and `log_std`; action = `(tanh(u) + 1) / 2` where `u ~ Normal(mean, std)`
+  - Correct log_prob via inverse tanh + Jacobian correction: `log P(a) = log P(u) - log(1 - tanh²(u))`
+  - Without the Jacobian, gradient signal is wrong and entropy gets stuck at ~1.7 (near-uniform)
+  - With TanhNormal: entropy stabilizes at ~0.41 (healthy exploration without randomness)
+  - `log_std` initialized to -1.0 (std ≈ 0.37) for tighter initial distribution
+
+- **Per-TLS duration decode fix** (`traffic_env.py`)
+  - Continuous action [0,1] was mapped to the **global** min/max across all 83 TLS
+  - Pedestrian crossings have max_green=123s → global range was 10.5s–123s
+  - action=0.5 → 66.5s green, causing 200s+ cycles and massive wait times
+  - Fix: each TLS maps its own action to its own per-TLS bounds
+  - Multi-phase intersections: action=0.5 → 23-35s (appropriate for real intersections)
+
+- **All 83 TLS under AI duration control**
+  - Previously: 10 multi-phase TLS had AI phase selection, 73 pedestrian crossings forced to permanent green
+  - Now: all 83 TLS receive AI-chosen green durations via continuous action [0,1]
+  - Pedestrian crossings still have single phases (no phase switching), but AI controls how long each green lasts
+  - Enables the network to dynamically lengthen/shorten pedestrian cycles based on demand
+
+- **MASAC agent added** (`masac_agent.py`)
+  - Multi-Agent SAC with shared `SACActorNetwork` and twin centralized `SACCriticNetwork`
+  - 500K replay buffer for off-policy experience reuse
+  - Auto-tuned entropy temperature `log_alpha` with target_entropy=-1.0
+  - Soft target updates (tau=0.005)
+  - Available via `--algorithm masac` CLI flag
+  - Note: MASAC underperformed in practice due to alpha collapse on low-traffic episodes filling the buffer
+
+- **Parallel MAPPO workers** (`train.py`)
+  - `--workers N` flag spawns N SUMO instances collecting episodes simultaneously
+  - Combined transitions feed a single PPO update (~N× faster training)
+  - Recommended: `--workers 4` on typical hardware (8 workers causes CUDA OOM)
+
+- **Best model saved by wait/vehicle ratio**
+  - Previously saved by highest training reward — picked lucky low-traffic episodes
+  - Now: only saves when `vehicles >= 200` and `wait_per_vehicle` is a new minimum
+  - Ensures saved checkpoint reflects genuine policy quality, not favorable random seeds
+
+- **`--resume-from` loads actor weights only**
+  - When resuming from a checkpoint, only actor weights are restored
+  - Critic starts fresh to avoid value miscalibration when reward function has changed
+  - Loading the full checkpoint (actor + critic + optimizer) with a different reward caused wrong PPO advantages and policy collapse within 10 episodes
 
 ---
 
 ### Results
 
-Final performance comparison after all Level 1 optimizations, averaged over 3 evaluation episodes:
+Final performance comparison after all Level 1 optimizations, averaged over 3 evaluation episodes at sim_length=3600:
 
 | Metric | Baseline | AI Model | Change |
 |--------|----------|----------|--------|
-| Average Wait Time | 974.5s | 175.9s | **-82%** |
-| Average Queue Length | 5.2 vehicles | 1.2 vehicles | **-77%** |
-| Throughput (arrived) | 591 vehicles | 1,078 vehicles | **+82%** |
+| Average Wait Time | 32.1s | **0.8s** | **-98%** |
+| Average Queue Length | 0.2 vehicles | **0.0 vehicles** | **-88%** |
+| Throughput (arrived) | 1,479 vehicles | 1,468 vehicles | -1% |
 
 **Key observations:**
-- The AI model reduces average wait time by over 13 minutes per vehicle
-- Queue lengths drop below 2 vehicles on average, indicating free-flowing conditions
-- Nearly double the vehicles complete their journeys, demonstrating genuine throughput improvement
-- The baseline "do nothing" policy is a fair comparison --- same environment, same constraints, only difference is intelligent phase selection
+- -98% wait time is the result of the combined fix stack: removing the broken reward bonus, per-TLS duration decode, and continuous TanhNormal policy
+- Queue drops to near-zero: intersections clear faster than vehicles arrive
+- Throughput is roughly unchanged (-1%) --- vehicles are not lost, they simply wait far less
 
 ---
 
 ## Future: Level 2 (Planned)
 
-Level 2 will extend the system with:
-- **Random traffic events** (accidents, road closures, weather) via `EventManager`
-- **Adaptive event response** --- agent learns to reroute traffic around disruptions
-- **TLS placement optimization** --- AI recommends where to add/remove traffic lights
-- **Extended observation space** with event-aware features (edge blocked flags, active event count)
+Level 2 will extend the system with dynamic traffic event handling and multi-city generalization:
 
-Code scaffolding for Level 2 exists in the codebase (commented out with `[Level 2 REMOVED]` markers) but is disabled for Level 1.
+- **Random traffic events** (accidents, road closures, VIP convoys, weather) via `EventManager`
+- **Adaptive event response** --- agent learns to reroute traffic around disruptions  
+- **Multi-city transfer** --- test whether the Hai Chau-trained policy generalizes to Hanoi/Ho Chi Minh City networks
+- **Green wave coordination** --- explicit neighbor communication between adjacent TLS agents
+- **Demand prediction** --- short-horizon vehicle count forecasting to improve anticipatory switching
