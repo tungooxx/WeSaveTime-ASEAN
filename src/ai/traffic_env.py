@@ -478,6 +478,9 @@ class SumoTrafficEnv(gym.Env):
                 gp = self._green_phases.get(tls_id, [0])
                 if live_phase in gp:
                     self._cycle_index[tls_id] = gp.index(live_phase)
+                # Reset phase timers so elapsed-green in _obs_for() starts from 0
+                self._phase_start_step[tls_id] = self._sim_step
+                self._green_start_step[tls_id] = self._sim_step
             except traci.TraCIException:
                 pass
 

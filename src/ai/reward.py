@@ -41,9 +41,9 @@ def compute_tls_reward(
     # 1. Pressure: outgoing > incoming = good flow (main signal)
     pressure_term = w_pressure * float(np.clip(pressure / 10.0, -1.0, 1.0))
 
-    # 2. Queue penalty: absolute level, not delta
+    # 2. Queue penalty: absolute level, not delta (clipped to [0,1] to bound reward)
     avg_q = float(np.mean(queue_lengths)) if queue_lengths else 0.0
-    queue_term = -w_queue * (avg_q / max_queue_cap)
+    queue_term = -w_queue * float(np.clip(avg_q / max_queue_cap, 0.0, 1.0))
 
     # 3. Wait delta: penalise increasing wait, reward decreasing
     delta_wait = new_waiting - old_waiting

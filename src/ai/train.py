@@ -567,8 +567,8 @@ def train_mappo_with_callbacks(
             best_reward = mean_r
 
         ep_wait = metrics.get("avg_wait_time", 9999)
-        ep_vehicles = metrics.get("total_vehicles", 0)
-        if ep_vehicles >= 50 and ep_wait < best_wait:
+        ep_throughput = metrics.get("throughput", 0)  # cumulative arrived vehicles
+        if ep_throughput >= 50 and ep_wait < best_wait:
             best_wait = ep_wait
             agent.save(os.path.join(save_dir, "best_model.pt"))
 
@@ -917,15 +917,13 @@ def train_mappo_parallel(
             if mean_r > best_reward:
                 best_reward = mean_r
 
-            # Save best model by wait-per-vehicle (normalizes for variable traffic seeds)
+            # Save best model by wait, gated on cumulative throughput (not end-of-episode vehicle count)
             ep_wait = metrics.get("avg_wait_time", 9999)
-            ep_vehicles = metrics.get("total_vehicles", 0)
-            # Normalize by vehicle count to avoid saving lucky low-traffic episodes
-            wait_per_veh = ep_wait / max(ep_vehicles, 1)
-            if ep_vehicles >= 200 and wait_per_veh < best_wait:
-                best_wait = wait_per_veh
+            ep_throughput = metrics.get("throughput", 0)  # cumulative arrived vehicles
+            if ep_throughput >= 200 and ep_wait < best_wait:
+                best_wait = ep_wait
                 agent.save(os.path.join(save_dir, "best_model.pt"))
-                _status(f"  >> New best model: wait={ep_wait:.1f}s v={ep_vehicles} (wait/v={wait_per_veh:.3f}, ep {ep_count})")
+                _status(f"  >> New best model: wait={ep_wait:.1f}s tp={ep_throughput} (ep {ep_count})")
 
             if on_episode:
                 on_episode(ep_log)
@@ -1386,7 +1384,7 @@ def train_masac(
         metrics = env.get_metrics()
 
         avg_wait = metrics.get("avg_wait_time", 9999)
-        vehicles = metrics.get("total_vehicles", 0)
+        vehicles = metrics.get("throughput", 0)  # cumulative arrived, not residual count
         ep_log = {
             "episode": ep, "total_episodes": episodes,
             "mean_reward": round(mean_r, 4),

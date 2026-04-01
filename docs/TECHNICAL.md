@@ -336,11 +336,14 @@ The `step()` function implements a per-TLS state machine that processes yellow, 
 ```text
 For each decision step (delta_time = 30 sim ticks = 15 real seconds):
 
-1. RESOLVE target phases from actions
-   - Min-green enforcement: if elapsed < per-TLS min_green, override to keep current phase
+1. RESOLVE duration from actions
+   - Phases auto-cycle in SUMO order — the AI picks HOW LONG, not which phase
+   - Continuous action [0,1] -> duration = per_tls_min + action * (per_tls_max - per_tls_min)
+   - Min-green enforcement: if countdown > 0, action is ignored (current duration committed)
 
-2. DETECT phase changes
-   - For each TLS requesting a new phase: set yellow state
+2. DETECT phase transitions
+   - When countdown expires, advance to next phase in cycle
+   - For each TLS switching phases: set yellow state
 
 3. TICK-BY-TICK TRANSITION (per-TLS independent)
    For each sim tick up to max_transition:
@@ -387,48 +390,44 @@ The reward function follows a **pressure-primary** design, inspired by the **Pre
 
 ### Reward Terms
 
-The per-TLS reward is a weighted sum of six terms:
+The per-TLS reward is a weighted sum of five terms:
 
 ```text
-reward = wait_term + queue_term + fairness_term + throughput_term + pressure_term + switch_term
+reward = pressure_term + queue_term + wait_term + throughput_term + switch_term
 ```
 
-**Overall range:** approximately -1.0 to +0.5 per step.
+**Overall range:** approximately -0.7 to +0.5 per step.
 
 | Term | Weight | Formula | Purpose |
 |------|--------|---------|---------|
-| **Pressure** | 0.30 | `+w * clip(pressure / 20, -1, 1)` | Primary signal. Positive when more vehicles exit than enter (good flow). |
-| **Wait improvement** | 0.25 | `-w * clip(delta_wait / 100, -2, 2)` | Reward decrease in total waiting time on incoming edges. |
-| **Queue penalty** | 0.15 | `-w * (avg_queue / 50)` | Penalize average queue length across incoming edges. |
-| **Switch penalty** | 0.15 | `-w * transition_cost` (if changed) | Discourage unnecessary phase changes. Scaled by per-TLS transition cost. |
-| **Throughput** | 0.10 | `+w * clip(delta_throughput / 10, -1, 1)` | Reward net increase in vehicles flowing through. |
-| **Fairness** | 0.05 | `-w * (max_queue / 50)` | Penalize worst-case queue to prevent starvation of any approach. |
+| **Pressure** | 0.40 | `+w_pressure * clip(pressure / 10, -1, 1)` | Primary signal. Positive when more vehicles exit than enter (good flow). |
+| **Queue penalty** | 0.25 | `-w_queue * clip(avg_queue / 50, 0, 1)` | Penalize average queue length across incoming edges. |
+| **Wait improvement** | 0.20 | `-w_wait * clip(delta_wait / 50, -1, 1)` | Reward decrease in total waiting time on incoming edges. |
+| **Throughput** | 0.10 | `+w_throughput * clip((old_tp - new_tp) / 10, -1, 1)` | Reward reduction in vehicles on incoming edges (they've passed through). |
+| **Switch penalty** | 0.05 | `-w_switch * transition_cost` (if changed) | Discourage unnecessary phase changes. Scaled by per-TLS transition cost. |
 
 ### Term Details
 
-**Pressure (w=0.30):**
+**Pressure (w_pressure=0.40):**
 Computed as `outgoing_vehicles - incoming_vehicles` for the intersection node. Positive pressure means the intersection is clearing vehicles faster than they arrive. This term directly targets throughput maximization and is the primary learning signal.
 
-**Wait Improvement (w=0.25):**
-Tracks the change in total waiting time across all incoming edges between consecutive steps. Rewards the agent for reducing cumulative wait, penalizes for increasing it. Clipped to [-2, 2] to prevent large spikes from dominating.
+**Queue Penalty (w_queue=0.25):**
+Average queue length (halting vehicles) across all incoming edges, normalized by a cap of 50 vehicles and clipped to [0, 1] to prevent unbounded penalties.
 
-**Queue Penalty (w=0.15):**
-Average queue length (halting vehicles) across all incoming edges, normalized by a cap of 50 vehicles. Provides a continuous penalty proportional to congestion severity.
+**Wait Improvement (w_wait=0.20):**
+Tracks the change in total waiting time across all incoming edges between consecutive steps. Rewards the agent for reducing cumulative wait, penalizes for increasing it.
 
-**Switch Penalty (w=0.15):**
-Applied only when the agent switches to a different phase. Scaled by the **per-TLS transition cost**:
+**Throughput (w_throughput=0.10):**
+Change in vehicle count on incoming edges between steps (`old - new`). Rewards when fewer vehicles remain (they have passed through). Sign is `old - new` to ensure a decrease in queue (vehicles clearing) produces a positive reward.
+
+**Switch Penalty (w_switch=0.05):**
+Applied only when the agent changes the active phase. Scaled by the **per-TLS transition cost**:
 
 ```text
 transition_cost = (yellow_steps + allred_steps) / avg_transition_across_all_TLS
 ```
 
-This means large intersections (which have longer yellow + all-red clearance) are penalized more for switching, reflecting the real cost of lost green time during transitions.
-
-**Throughput (w=0.10):**
-Change in vehicle count on incoming edges between steps. Rewards when fewer vehicles remain (they have passed through).
-
-**Fairness (w=0.05):**
-Maximum queue across all incoming edges (worst-case approach). Prevents the agent from permanently starving one direction to optimize the overall average.
+Large intersections (longer yellow + all-red clearance) are penalized more for switching, reflecting the real cost of lost green time during transitions.
 
 ---
 

@@ -364,13 +364,26 @@ def generate_demand():
         ("dv_", "delivery",      50, 5),   # delivery vans
     ]
 
+    # Derive simulation duration from sumocfg end time and step length
+    # sumocfg end=3600 ticks @ step=0.5s = 1800 real seconds, but training
+    # uses sim_length=1800 ticks = 900 real seconds, so halve the cfg end value.
+    _cfg_end = 3600  # default; read from sumocfg if available
+    try:
+        import xml.etree.ElementTree as _ET
+        _cfg = _ET.parse(CFG_FILE)
+        _end_el = _cfg.find(".//end")
+        if _end_el is not None:
+            _cfg_end = int(_end_el.get("value", 3600))
+        _step_el = _cfg.find(".//step-length")
+        _step = float(_step_el.get("value", 0.5)) if _step_el is not None else 0.5
+    except Exception:
+        _step = 0.5
+    sim_duration = int(_cfg_end * _step / 2)  # half of full cfg duration (training window)
+    depart_end = int(sim_duration * 2 / 3)    # spawn in first 2/3, drain in last 1/3
+
     for prefix, vtype, count, fringe in vehicle_configs:
         trip_file = os.path.join(SCRIPT_DIR, f"danang.{prefix}.trips.xml")
         trip_files.append(trip_file)
-
-        # Spawn vehicles in first 2/3 of sim, leaving 1/3 for network to drain
-        sim_duration = 900  # real seconds (matches sim_length=1800 @ step=0.5)
-        depart_end = int(sim_duration * 2 / 3)
         cmd = [
             sys.executable, randomTrips,
             "-n", NET_FILE,
