@@ -49,8 +49,8 @@ def compute_tls_reward(
     delta_wait = new_waiting - old_waiting
     wait_term = -w_wait * float(np.clip(delta_wait / 50.0, -1.0, 1.0))
 
-    # 4. Throughput bonus: vehicles arriving at intersection
-    tp_change = new_throughput - old_throughput
+    # 4. Throughput bonus: vehicles clearing intersection (fewer = better flow)
+    tp_change = old_throughput - new_throughput
     throughput_term = w_throughput * float(np.clip(tp_change / 10.0, -1.0, 1.0))
 
     # 5. Small switch penalty to discourage unnecessary phase changes

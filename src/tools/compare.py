@@ -55,19 +55,11 @@ def run_baseline(net_file, route_file, sumo_cfg, sim_length=3600,
         terminated = truncated = False
 
         while not (terminated or truncated):
-            # "Do nothing" — keep current phase for every TLS
+            # Baseline: use middle duration level for all TLS (neutral default timing)
             actions = {}
             for tid in env.tls_ids:
-                # Action 0 = keep first green phase (no switching)
-                green_phases = env._green_phases.get(tid, [0])
-                current = env._current_phases.get(tid, green_phases[0])
-                # Find action index that maps to current phase
-                action = 0
-                for ai, gp in enumerate(green_phases):
-                    if gp == current:
-                        action = ai
-                        break
-                actions[tid] = action
+                levels = env._duration_levels.get(tid, [0])
+                actions[tid] = len(levels) // 2
             obs, rewards, terminated, truncated, _ = env.step(actions)
 
         elapsed = time.time() - t0

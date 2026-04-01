@@ -576,8 +576,7 @@ class Visualizer:
                         # Per-TLS timing
                         yw = env._yellow_steps.get(tid, 6) * 0.5
                         ar = env._allred_steps.get(tid, 4) * 0.5
-                        gr = max(env.delta_time - env._yellow_steps.get(tid, 6)
-                                 - env._allred_steps.get(tid, 4), 1) * 0.5
+                        gr = env._committed_green.get(tid, env.delta_time) * 0.5
                         # Get tier from geometry
                         tls_info = env._tls_map.get(tid)
                         tier = tls_info.geometry.tier[:3].upper() if (
@@ -869,6 +868,12 @@ class BaselineVisualizer:
                 pass
 
 
+def _run_baseline_window(common: dict) -> None:
+    """Module-level target for baseline multiprocessing.Process (must be pickleable)."""
+    bl = BaselineVisualizer(**common)
+    bl.run()
+
+
 # ── CLI ────────────────────────────────────────────────────────────────
 
 def main():
@@ -914,11 +919,7 @@ def main():
             sys.exit(1)
 
         # Launch baseline in a separate process (Tk is not thread-safe)
-        def run_baseline_window():
-            bl = BaselineVisualizer(**common)
-            bl.run()
-
-        bl_proc = multiprocessing.Process(target=run_baseline_window, daemon=True)
+        bl_proc = multiprocessing.Process(target=_run_baseline_window, args=(common,), daemon=True)
         bl_proc.start()
         time.sleep(2)  # let baseline SUMO-gui start first
 

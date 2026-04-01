@@ -180,25 +180,25 @@ class SumoTrafficEnv(gym.Env):
                 )
 
         # ── Per-TLS duration levels (in sim steps) ────────────────────
-        # Flexible global range: min=delta_time//6 (≥4 steps), max=delta_time*2
-        # Same range for ALL TLS — no per-intersection constraints.
-        # At delta_time=120: 10 steps(5s) to 240 steps(120s) in 7 levels.
-        self._flex_min_steps: int = max(4, delta_time // 6)
-        self._flex_max_steps: int = delta_time * 2
+        # N levels evenly spread from min_green to max_green for each TLS.
         self._duration_levels: dict[str, list[int]] = {}
         n = self.num_duration_levels
         for tid in self.tls_ids:
+            mn = self._min_green_steps[tid]
+            mx = self._max_green_steps[tid]
             if n <= 1:
-                self._duration_levels[tid] = [delta_time]
+                self._duration_levels[tid] = [mn]
             elif n == 2:
-                self._duration_levels[tid] = [self._flex_min_steps, self._flex_max_steps]
+                self._duration_levels[tid] = [mn, mx]
             else:
                 levels = []
                 for i in range(n):
                     t = i / (n - 1)
-                    val = int(self._flex_min_steps + t * (self._flex_max_steps - self._flex_min_steps))
+                    val = int(mn + t * (mx - mn))
                     levels.append(val)
                 self._duration_levels[tid] = levels
+        self._flex_min_steps: int = min(self._min_green_steps.values())
+        self._flex_max_steps: int = max(self._max_green_steps.values())
 
         # ── Reward importance weights ─────────────────────────────────
         # Weight by complexity: multi-phase intersections matter more
@@ -310,7 +310,10 @@ class SumoTrafficEnv(gym.Env):
         if self.action_mode == "continuous":
             t = float(action) if not hasattr(action, '__len__') else float(action[0])
             t = max(0.0, min(1.0, t))
-            return int(mn + t * (mx - mn))
+            # Use per-TLS bounds so ped crossings don't inflate the range
+            per_mn = self._min_green_steps.get(tls_id, mn)
+            per_mx = self._max_green_steps.get(tls_id, mx)
+            return int(per_mn + t * (per_mx - per_mn))
         else:
             idx = min(int(action), len(levels) - 1)
             return levels[idx]

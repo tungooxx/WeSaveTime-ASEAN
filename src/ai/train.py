@@ -35,6 +35,7 @@ if _PROJECT_ROOT not in sys.path:
 from src.ai.traffic_env import SumoTrafficEnv, OBS_DIM, ACT_DIM, remap_obs_for_old_model
 from src.ai.dqn_agent import TrafficDQNAgent
 from src.ai.mappo_agent import MAPPOAgent
+from src.ai.masac_agent import MASACAgent
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -489,6 +490,7 @@ def train_mappo_with_callbacks(
     }
 
     best_reward = -float("inf")
+    best_wait = float("inf")
 
     for ep in range(1, episodes + 1):
         if stop_check and stop_check():
@@ -563,6 +565,11 @@ def train_mappo_with_callbacks(
 
         if mean_r > best_reward:
             best_reward = mean_r
+
+        ep_wait = metrics.get("avg_wait_time", 9999)
+        ep_vehicles = metrics.get("total_vehicles", 0)
+        if ep_vehicles >= 50 and ep_wait < best_wait:
+            best_wait = ep_wait
             agent.save(os.path.join(save_dir, "best_model.pt"))
 
         if ep % save_every == 0:
@@ -711,6 +718,7 @@ def train_mappo_parallel(
     curriculum: bool = False,
     action_mode: str = "discrete",
     num_duration_levels: int = 7,
+    resume_from: str | None = None,
     on_episode=None,
     on_status=None,
     stop_check=None,
@@ -763,6 +771,20 @@ def train_mappo_parallel(
         ppo_epochs=ppo_epochs, mini_batch_size=mini_batch_size,
         action_mode=action_mode,
     )
+    if resume_from and os.path.isfile(resume_from):
+        import torch as _torch
+        ckpt = _torch.load(resume_from, map_location="cpu", weights_only=True)
+        full_sd = ckpt.get("model", {})
+        # Load only actor weights — critic starts fresh to avoid value miscalibration
+        # when reward function differs from checkpoint's training reward.
+        actor_sd = {k: v for k, v in full_sd.items()
+                    if k.startswith("actor")}
+        if actor_sd:
+            missing, unexpected = agent.network.load_state_dict(actor_sd, strict=False)
+            _status(f"Resumed actor weights from {resume_from} "
+                    f"(critic starts fresh; missing={len(missing)} keys)")
+        else:
+            _status(f"No actor keys found in {resume_from}, starting fresh")
     _status(f"MAPPO agent ready, obs_dim={OBS_DIM}, act_dim={act_dim}")
 
     log = {
@@ -776,6 +798,7 @@ def train_mappo_parallel(
     }
 
     best_reward = -float("inf")
+    best_wait = float("inf")
     ep_count = 0
 
     # Resolve absolute paths for workers
@@ -893,17 +916,16 @@ def train_mappo_parallel(
 
             if mean_r > best_reward:
                 best_reward = mean_r
-                agent.save(os.path.join(save_dir, "best_model.pt"))
 
-            # Save best model for full-traffic phase separately
-            is_full_traffic = (active_route == abs_route)
-            if is_full_traffic and (
-                not hasattr(train_mappo_parallel, '_best_full') or
-                mean_r > train_mappo_parallel._best_full
-            ):
-                train_mappo_parallel._best_full = mean_r
-                agent.save(os.path.join(save_dir, "best_model_full.pt"))
-                _status(f"  >> New best full-traffic model: R={mean_r:.4f}")
+            # Save best model by wait-per-vehicle (normalizes for variable traffic seeds)
+            ep_wait = metrics.get("avg_wait_time", 9999)
+            ep_vehicles = metrics.get("total_vehicles", 0)
+            # Normalize by vehicle count to avoid saving lucky low-traffic episodes
+            wait_per_veh = ep_wait / max(ep_vehicles, 1)
+            if ep_vehicles >= 200 and wait_per_veh < best_wait:
+                best_wait = wait_per_veh
+                agent.save(os.path.join(save_dir, "best_model.pt"))
+                _status(f"  >> New best model: wait={ep_wait:.1f}s v={ep_vehicles} (wait/v={wait_per_veh:.3f}, ep {ep_count})")
 
             if on_episode:
                 on_episode(ep_log)
@@ -1206,6 +1228,214 @@ def evaluate(
     }
 
 
+def evaluate_mappo(
+    agent: MAPPOAgent,
+    net_file: str,
+    route_file: str,
+    sumo_cfg: str | None = None,
+    episodes: int = 5,
+    delta_time: int = 10,
+    sim_length: int = 3600,
+    gui: bool = False,
+    seed: int = 1000,
+) -> dict:
+    """Run *episodes* with a greedy MAPPO policy."""
+    env = SumoTrafficEnv(
+        net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
+        delta_time=delta_time, sim_length=sim_length, gui=gui, seed=seed,
+    )
+    results: list[dict] = []
+    for ep in range(1, episodes + 1):
+        obs, _ = env.reset(seed=seed + ep)
+        global_obs = np.mean(list(obs.values()), axis=0) if obs else np.zeros(OBS_DIM)
+        ep_reward = 0.0
+        terminated = truncated = False
+        while not (terminated or truncated):
+            global_obs = np.mean(list(obs.values()), axis=0)
+            actions = {
+                tid: agent.select_action(obs[tid], global_obs, greedy=True)[0]
+                for tid in env.tls_ids
+            }
+            obs, rewards, terminated, truncated, _ = env.step(actions)
+            ep_reward += sum(rewards.values())
+        metrics = env.get_metrics()
+        results.append({"episode": ep, "total_reward": ep_reward, **metrics})
+        print(
+            f"  Eval {ep}/{episodes}: "
+            f"reward={ep_reward:.2f}, "
+            f"wait={metrics.get('avg_wait_time', 0):.1f}s"
+        )
+    env.close()
+    return {
+        "mean_reward": float(np.mean([r["total_reward"] for r in results])),
+        "mean_wait": float(np.mean([r.get("avg_wait_time", 0) for r in results])),
+        "mean_queue": float(np.mean([r.get("avg_queue_length", 0) for r in results])),
+        "episodes": results,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────
+# MASAC Training
+# ──────────────────────────────────────────────────────────────────────
+
+def train_masac(
+    net_file: str,
+    route_file: str,
+    sumo_cfg: str | None = None,
+    episodes: int = 1000,
+    delta_time: int = 30,
+    sim_length: int = 3600,
+    hidden: int = 256,
+    lr: float = 3e-4,
+    gamma: float = 0.99,
+    tau: float = 0.005,
+    buffer_capacity: int = 500_000,
+    batch_size: int = 256,
+    warmup_steps: int = 1000,
+    updates_per_step: int = 1,
+    save_dir: str = "checkpoints",
+    save_every: int = 10,
+    seed: int = 42,
+    gui: bool = False,
+    on_episode=None,
+    on_status=None,
+    stop_check=None,
+) -> tuple[MASACAgent, dict]:
+    """MASAC training loop — off-policy, continuous actions, replay buffer."""
+
+    def _status(msg):
+        if on_status:
+            on_status(msg)
+        else:
+            print(msg)
+
+    os.makedirs(save_dir, exist_ok=True)
+    log_path = os.path.join(save_dir, "training_log.json")
+
+    _status("Creating environment...")
+    env = SumoTrafficEnv(
+        net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
+        delta_time=delta_time, sim_length=sim_length, gui=gui, seed=seed,
+        action_mode="continuous",
+    )
+    n_agents = env.num_agents
+    _status(f"Environment ready: {n_agents} TLS agents")
+
+    agent = MASACAgent(
+        obs_dim=OBS_DIM, hidden=hidden,
+        lr_actor=lr, lr_critic=lr, lr_alpha=lr,
+        gamma=gamma, tau=tau,
+        buffer_capacity=buffer_capacity,
+        batch_size=batch_size,
+        warmup_steps=warmup_steps,
+        updates_per_step=updates_per_step,
+    )
+    _status(f"MASAC agent ready | buffer={buffer_capacity} | warmup={warmup_steps}")
+
+    log = {
+        "config": {
+            "algorithm": "masac", "episodes": episodes,
+            "num_agents": n_agents, "obs_dim": OBS_DIM,
+            "action_mode": "continuous", "delta_time": delta_time,
+        },
+        "episodes": [],
+    }
+
+    best_reward = -float("inf")
+    best_wait = float("inf")
+
+    for ep in range(1, episodes + 1):
+        if stop_check and stop_check():
+            break
+
+        t0 = time.time()
+        obs, _ = env.reset(seed=seed + ep)
+        terminated = truncated = False
+        ep_rewards = {tid: 0.0 for tid in env.tls_ids}
+        step_count = 0
+
+        while not (terminated or truncated):
+            all_obs = [obs[tid] for tid in env.tls_ids]
+            global_obs = np.mean(all_obs, axis=0).astype(np.float32)
+
+            actions = {
+                tid: agent.select_action(obs[tid], global_obs)
+                for tid in env.tls_ids
+            }
+
+            next_obs, rewards, terminated, truncated, _ = env.step(actions)
+
+            next_all = [next_obs[tid] for tid in env.tls_ids]
+            next_global = np.mean(next_all, axis=0).astype(np.float32)
+
+            for tid in env.tls_ids:
+                agent.store(
+                    obs[tid], global_obs, actions[tid], rewards[tid],
+                    next_obs[tid], next_global, terminated,
+                )
+                ep_rewards[tid] += rewards[tid]
+
+            # Update after every step (off-policy)
+            agent.update()
+
+            obs = next_obs
+            step_count += 1
+
+        elapsed = time.time() - t0
+        mean_r = float(np.mean(list(ep_rewards.values())))
+        metrics = env.get_metrics()
+
+        avg_wait = metrics.get("avg_wait_time", 9999)
+        vehicles = metrics.get("total_vehicles", 0)
+        ep_log = {
+            "episode": ep, "total_episodes": episodes,
+            "mean_reward": round(mean_r, 4),
+            "total_reward": round(sum(ep_rewards.values()), 4),
+            "mean_loss": 0.0,
+            "entropy": round(agent.alpha, 4),
+            "epsilon": 0.0,
+            "steps": step_count,
+            "time_s": round(elapsed, 1),
+            "avg_wait": avg_wait,
+            "avg_queue": metrics.get("avg_queue_length", 0),
+            "vehicles": vehicles,
+            "collisions": 0,
+            "best_reward": round(max(best_reward, mean_r), 4),
+            "algorithm": "masac",
+        }
+        log["episodes"].append(ep_log)
+
+        if mean_r > best_reward:
+            best_reward = mean_r
+
+        # Save best model by wait_time (only when enough vehicles to be meaningful)
+        if vehicles >= 50 and avg_wait < best_wait:
+            best_wait = avg_wait
+            agent.save(os.path.join(save_dir, "best_model.pt"))
+            _status(f"  >> New best model: wait={avg_wait:.2f}s (ep {ep})")
+
+        if on_episode:
+            on_episode(ep_log)
+
+        _status(
+            f"Ep {ep}/{episodes} | R={mean_r:.3f} | "
+            f"wait={metrics.get('avg_wait_time',0):.1f}s | "
+            f"alpha={agent.alpha:.3f} | buf={len(agent.buffer)} | "
+            f"t={elapsed:.0f}s"
+        )
+
+        if ep % save_every == 0:
+            agent.save(os.path.join(save_dir, f"model_ep{ep}.pt"))
+            with open(log_path, "w") as f:
+                json.dump(log, f, indent=2)
+
+    env.close()
+    with open(log_path, "w") as f:
+        json.dump(log, f, indent=2)
+
+    return agent, log
+
+
 # ──────────────────────────────────────────────────────────────────────
 # CLI
 # ──────────────────────────────────────────────────────────────────────
@@ -1234,28 +1464,37 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--gui", action="store_true")
     ap.add_argument("--eval-only", default=None, help="Checkpoint path for eval")
-    ap.add_argument("--algorithm", choices=["dqn", "mappo"], default="dqn",
-                    help="RL algorithm: dqn or mappo (default: dqn)")
+    ap.add_argument("--algorithm", choices=["dqn", "mappo", "masac"], default="dqn",
+                    help="RL algorithm: dqn, mappo, or masac (default: dqn)")
     ap.add_argument("--action-mode", choices=["discrete", "continuous"],
                     default="discrete", help="Action mode (default: discrete)")
     ap.add_argument("--workers", type=int, default=1,
                     help="Parallel SUMO workers for MAPPO (default: 1, use 2-8 for speed)")
+    ap.add_argument("--entropy-coef", type=float, default=0.03,
+                    help="PPO entropy coefficient (default: 0.03, lower=less random)")
+    ap.add_argument("--duration-levels", type=int, default=7,
+                    help="Discrete duration levels (default: 7, try 3 for SHORT/MED/LONG)")
+    ap.add_argument("--resume-from", default=None,
+                    help="Path to checkpoint to resume training from")
 
     args = ap.parse_args()
 
     if args.eval_only:
-        # Auto-detect algorithm from checkpoint
-        ckpt = torch.load(args.eval_only, map_location="cpu", weights_only=True)
+        import torch as _torch
+        ckpt = _torch.load(args.eval_only, map_location="cpu", weights_only=True)
         algo = ckpt.get("algorithm", "dqn")
-        if algo == "mappo":
+        if algo in ("mappo", "mappo_parallel"):
             agent = MAPPOAgent(OBS_DIM, ACT_DIM, args.hidden)
             agent.load(args.eval_only)
+            results = evaluate_mappo(
+                agent, args.net, args.route, args.cfg, gui=args.gui, seed=args.seed
+            )
         else:
             agent = TrafficDQNAgent(OBS_DIM, ACT_DIM, args.hidden)
             agent.load(args.eval_only)
-        results = evaluate(
-            agent, args.net, args.route, args.cfg, gui=args.gui, seed=args.seed
-        )
+            results = evaluate(
+                agent, args.net, args.route, args.cfg, gui=args.gui, seed=args.seed
+            )
         print(f"\n  Results: {json.dumps(results, indent=2)}")
     elif args.algorithm == "mappo":
         if args.workers > 1:
@@ -1269,11 +1508,14 @@ def main() -> None:
                 hidden=args.hidden,
                 lr=args.lr,
                 gamma=args.gamma,
+                entropy_coef=args.entropy_coef,
                 save_dir=args.save_dir,
                 save_every=args.save_every,
                 seed=args.seed,
                 num_workers=args.workers,
                 action_mode=args.action_mode,
+                num_duration_levels=args.duration_levels,
+                resume_from=args.resume_from,
             )
         else:
             train_mappo_with_callbacks(
@@ -1286,12 +1528,32 @@ def main() -> None:
                 hidden=args.hidden,
                 lr=args.lr,
                 gamma=args.gamma,
+                entropy_coef=args.entropy_coef,
                 save_dir=args.save_dir,
                 save_every=args.save_every,
                 seed=args.seed,
                 gui=args.gui,
                 action_mode=args.action_mode,
+                num_duration_levels=args.duration_levels,
             )
+    elif args.algorithm == "masac":
+        train_masac(
+            net_file=args.net,
+            route_file=args.route,
+            sumo_cfg=args.cfg,
+            episodes=args.episodes,
+            delta_time=args.delta_time,
+            sim_length=args.sim_length,
+            hidden=args.hidden,
+            lr=args.lr,
+            gamma=args.gamma,
+            buffer_capacity=args.buffer,
+            batch_size=args.batch_size,
+            save_dir=args.save_dir,
+            save_every=args.save_every,
+            seed=args.seed,
+            gui=args.gui,
+        )
     else:
         train(
             net_file=args.net,

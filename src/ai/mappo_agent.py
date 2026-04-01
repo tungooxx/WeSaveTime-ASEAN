@@ -26,6 +26,42 @@ from torch.distributions import Categorical
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Tanh-Normal Distribution (Squashed Gaussian)
+# ──────────────────────────────────────────────────────────────────────
+
+class TanhNormal:
+    """Squashed Gaussian: action = (tanh(u) + 1) / 2, u ~ Normal(mean, std).
+
+    Naturally bounded to (0, 1) without clipping.  Log-prob includes the
+    Jacobian correction for the tanh squashing so PPO ratios are correct.
+    """
+
+    def __init__(self, mean: torch.Tensor, std: torch.Tensor) -> None:
+        self._normal = torch.distributions.Normal(mean, std)
+
+    def sample(self) -> torch.Tensor:
+        u = self._normal.rsample()
+        return (torch.tanh(u) + 1.0) / 2.0
+
+    def log_prob(self, action: torch.Tensor) -> torch.Tensor:
+        """Log-prob of a squashed action ∈ (0,1)."""
+        # Inverse squash: tanh_val ∈ (-1,1), u = atanh(tanh_val)
+        tanh_val = (action * 2.0 - 1.0).clamp(-1 + 1e-6, 1 - 1e-6)
+        u = torch.atanh(tanh_val)
+        lp = self._normal.log_prob(u)
+        # Jacobian: log|d(action)/d(u)| = log(0.5 * (1 - tanh²(u)))
+        lp = lp - torch.log(0.5 * (1.0 - tanh_val.pow(2)) + 1e-6)
+        return lp.sum(dim=-1)
+
+    def entropy(self) -> torch.Tensor:
+        return self._normal.entropy().sum(dim=-1)
+
+    @property
+    def mean(self) -> torch.Tensor:
+        return (torch.tanh(self._normal.mean) + 1.0) / 2.0
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Actor-Critic Network
 # ──────────────────────────────────────────────────────────────────────
 
@@ -42,7 +78,8 @@ class ActorCritic(nn.Module):
         self.act_dim = act_dim
 
         if action_mode == "continuous":
-            # Continuous actor: obs -> mean (0-1) + learnable log_std
+            # Continuous actor: obs -> unbounded mean + learnable log_std
+            # TanhNormal squashes output to (0,1) — no sigmoid needed here
             self.actor_backbone = nn.Sequential(
                 nn.Linear(obs_dim, hidden),
                 nn.ReLU(),
@@ -50,7 +87,8 @@ class ActorCritic(nn.Module):
                 nn.ReLU(),
             )
             self.actor_mean = nn.Linear(hidden, 1)
-            self.actor_log_std = nn.Parameter(torch.zeros(1))
+            # Init log_std=-1 → std≈0.37, tighter than 1.0 for faster convergence
+            self.actor_log_std = nn.Parameter(torch.full((1,), -1.0))
         else:
             # Discrete actor: obs -> action logits
             self.actor = nn.Sequential(
@@ -74,9 +112,9 @@ class ActorCritic(nn.Module):
                       valid_mask: Optional[torch.Tensor] = None):
         if self.action_mode == "continuous":
             h = self.actor_backbone(obs)
-            mean = torch.sigmoid(self.actor_mean(h))  # 0-1 range
-            std = torch.exp(self.actor_log_std).expand_as(mean)
-            return torch.distributions.Normal(mean, std)
+            mean = self.actor_mean(h)  # unbounded — TanhNormal squashes to (0,1)
+            std = torch.exp(self.actor_log_std.clamp(-4, 2)).expand_as(mean)
+            return TanhNormal(mean, std)
         else:
             logits = self.actor(obs)
             if valid_mask is not None:
@@ -268,12 +306,8 @@ class MAPPOAgent:
             value = self.network.forward_critic(obs_t, global_t)
 
             if self.action_mode == "continuous":
-                if greedy:
-                    action = dist.mean
-                else:
-                    action = dist.sample()
-                action = action.clamp(0.0, 1.0)
-                log_prob = dist.log_prob(action).sum(dim=-1)
+                action = dist.mean if greedy else dist.sample()
+                log_prob = dist.log_prob(action)
                 return float(action.item()), float(log_prob.item()), float(value.item())
             else:
                 if greedy:
@@ -332,7 +366,7 @@ class MAPPOAgent:
                 # Recompute
                 dist = self.network.forward_actor(obs_t, mask_t)
                 if is_cont:
-                    new_lp = dist.log_prob(actions_t.unsqueeze(-1)).sum(dim=-1)
+                    new_lp = dist.log_prob(actions_t.unsqueeze(-1))
                 else:
                     new_lp = dist.log_prob(actions_t)
                 entropy = dist.entropy().mean()
