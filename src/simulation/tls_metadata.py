@@ -83,8 +83,9 @@ class TLSGeometry:
 
 
 def _seconds_to_steps(s: float) -> int:
-    """Convert real seconds to simulation steps."""
-    return max(1, round(s / _SIM_STEP_LENGTH))
+    """Convert real seconds to simulation steps (rounds up)."""
+    import math
+    return max(1, math.ceil(s / _SIM_STEP_LENGTH))
 
 
 def _junction_width(net, tls_id: str) -> float:

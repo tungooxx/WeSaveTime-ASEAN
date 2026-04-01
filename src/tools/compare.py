@@ -34,7 +34,7 @@ from src.ai.dqn_agent import TrafficDQNAgent
 from src.ai.mappo_agent import MAPPOAgent
 
 
-def run_baseline(net_file, route_file, sumo_cfg, sim_length=1800,
+def run_baseline(net_file, route_file, sumo_cfg, sim_length=3600,
                  delta_time=30, seed=1000, episodes=3):
     """Run the SAME SumoTrafficEnv as the AI but with a 'do nothing' policy.
 
@@ -55,19 +55,11 @@ def run_baseline(net_file, route_file, sumo_cfg, sim_length=1800,
         terminated = truncated = False
 
         while not (terminated or truncated):
-            # "Do nothing" — keep current phase for every TLS
+            # Baseline: use middle duration level for all TLS (neutral default timing)
             actions = {}
             for tid in env.tls_ids:
-                # Action 0 = keep first green phase (no switching)
-                green_phases = env._green_phases.get(tid, [0])
-                current = env._current_phases.get(tid, green_phases[0])
-                # Find action index that maps to current phase
-                action = 0
-                for ai, gp in enumerate(green_phases):
-                    if gp == current:
-                        action = ai
-                        break
-                actions[tid] = action
+                levels = env._duration_levels.get(tid, [0])
+                actions[tid] = len(levels) // 2
             obs, rewards, terminated, truncated, _ = env.step(actions)
 
         elapsed = time.time() - t0
@@ -222,8 +214,8 @@ def main():
         _PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"))
     ap.add_argument("--episodes", type=int, default=3)
     ap.add_argument("--hidden", type=int, default=256)
-    ap.add_argument("--sim-length", type=int, default=1800,
-                        help="Sim steps (1800 = 900 real seconds at step_length=0.5)")
+    ap.add_argument("--sim-length", type=int, default=3600,
+                        help="Sim steps (3600 = 1800 real seconds at step_length=0.5)")
     ap.add_argument("--seed", type=int, default=1000)
     args = ap.parse_args()
 

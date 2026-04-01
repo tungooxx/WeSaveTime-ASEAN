@@ -29,15 +29,15 @@
 FlowMind AI is a multi-agent reinforcement learning system that controls traffic signals in real-time to reduce congestion, wait times, and queue lengths in Vietnamese urban areas. The system targets Hai Chau District --- the downtown core of Da Nang --- a dense urban area characterized by mixed traffic dominated by motorbikes, narrow streets, and complex intersections.
 
 **Core approach:**
-- **Multi-Agent Proximal Policy Optimization (MAPPO)** with shared parameters controls 34 non-trivial traffic light systems (TLS) simultaneously.
-- Each TLS is an independent agent that observes local traffic conditions and selects the optimal green phase.
+- **Multi-Agent Proximal Policy Optimization (MAPPO)** with shared parameters controls all 83 traffic light systems (TLS) simultaneously — 10 multi-phase real intersections and 73 pedestrian crossings.
+- Each TLS is an independent agent that observes local traffic conditions and selects a continuous green duration via a **TanhNormal** policy (bounded [0,1], mapped to per-TLS min/max seconds).
 - All agents share a single neural network (parameter sharing), enabling knowledge transfer between intersections of different sizes.
 - The system is built on the SUMO (Simulation of Urban Mobility) microsimulator, interfaced via TraCI, and wrapped in a Gymnasium-compatible environment for standard RL training.
 
 **Key results (Level 1):**
-- **-82% average wait time** (974.5s to 175.9s)
-- **-77% average queue length** (5.2 to 1.2 vehicles)
-- **+82% throughput** (591 to 1,078 arrived vehicles)
+- **-98% average wait time** (32.1s to 0.8s)
+- **-88% average queue length** (0.2 to 0.0 vehicles)
+- **Throughput maintained** (1,479 to 1,468 arrived vehicles, -1%)
 
 ---
 
@@ -45,7 +45,7 @@ FlowMind AI is a multi-agent reinforcement learning system that controls traffic
 
 ### High-Level Data Flow
 
-```
+```text
 +-------------------+         +-------------------+         +-------------------+
 |                   |  TraCI  |                   |  obs    |                   |
 |   SUMO Simulator  |<------->|  SumoTrafficEnv   |-------->|   MAPPO Agent     |
@@ -61,7 +61,7 @@ FlowMind AI is a multi-agent reinforcement learning system that controls traffic
 
 ### Detailed Component Interaction
 
-```
+```text
 +-------------------------------------------------------------------+
 |                        TRAINING LOOP                               |
 |                                                                    |
@@ -97,10 +97,11 @@ FlowMind AI is a multi-agent reinforcement learning system that controls traffic
 | Module | Purpose |
 |--------|---------|
 | `src/ai/traffic_env.py` | Gymnasium multi-agent environment wrapping SUMO |
-| `src/ai/reward.py` | Per-TLS reward computation (6 weighted terms) |
-| `src/ai/mappo_agent.py` | MAPPO agent with shared ActorCritic network |
-| `src/ai/train.py` | Training loop with DQN/MAPPO support |
-| `src/simulation/tls_metadata.py` | Dynamic TLS discovery, geometry, and timing |
+| `src/ai/reward.py` | Per-TLS reward computation (pressure-primary, 5 weighted terms) |
+| `src/ai/mappo_agent.py` | MAPPO agent with shared ActorCritic + TanhNormal continuous policy |
+| `src/ai/masac_agent.py` | MASAC agent (Multi-Agent SAC, replay buffer, auto-tuned alpha) |
+| `src/ai/train.py` | Training loop: DQN / MAPPO (sequential + parallel) / MASAC |
+| `src/simulation/tls_metadata.py` | Dynamic TLS discovery, geometry, and per-TLS timing |
 | `src/tools/compare.py` | Baseline vs AI comparison framework |
 | `src/tools/visualize.py` | SUMO-GUI visualization with live stats panel |
 | `src/tools/rl_dashboard.py` | Tkinter training management GUI |
@@ -120,7 +121,7 @@ The simulation network covers **Hai Chau District** --- Da Nang's downtown core,
 
 The network is constructed through a multi-stage pipeline:
 
-```
+```text
 map.osm (OpenStreetMap)
     |
     v
@@ -207,7 +208,7 @@ Not every TLS in the SUMO network warrants RL optimization. The system filters t
 | Incoming edges | >= 2 | Skip median breaks and channelized turns |
 | Roundabout distance | > 200m | Roundabouts work better with yield-based flow |
 
-**Hai Chau statistics:** ~107 total TLS in the network, **34 non-trivial** TLS selected for AI control.
+**Hai Chau statistics:** ~107 total TLS in the network, **83 TLS** under AI control — 10 multi-phase real intersections (phase selection + duration) and 73 single-phase pedestrian crossings (duration only).
 
 ### Trivial TLS Handling
 
@@ -233,7 +234,7 @@ Each non-trivial TLS receives individualized timing parameters computed from eng
 
 #### Yellow Time (ITE / Kell-Fullerton Formula)
 
-```
+```text
 yellow = max(3.0, 1.0 + v / (2 * a))
 ```
 
@@ -244,7 +245,7 @@ Where:
 
 #### All-Red Clearance (FHWA Formula)
 
-```
+```text
 allred = max(1.5, (W + L) / v)
 ```
 
@@ -269,7 +270,7 @@ The pedestrian constraint is typically the **binding constraint** for medium and
 
 Total cycle length is constrained to <= 120 real seconds:
 
-```
+```text
 if n_phases * (min_green + yellow + allred) > 120s:
     min_green = max((120 - n * (yellow + allred)) / n, 7.0)
 ```
@@ -278,7 +279,7 @@ if n_phases * (min_green + yellow + allred) > 120s:
 
 Used for the default fixed-timing baseline:
 
-```
+```text
 L = n * (1.5 + yellow + allred)        # total lost time
 Y = min(n * 0.30, 0.90)                # flow ratio estimate
 C_opt = (1.5 * L + 5) / (1 - Y)       # Webster's formula
@@ -311,15 +312,28 @@ Edges are padded/truncated to a fixed 12 slots (`MAX_INCOMING_EDGES = 12`) to en
 
 ### Action Space
 
-**Discrete(7):** Select green phase index 0 through 6. Each action maps to a specific green phase in the TLS program. If a TLS has fewer than 7 green phases, excess actions map to the first valid phase.
+**Continuous (TanhNormal):** A single float in [0, 1] representing the desired green duration, mapped per-TLS to its own [min_green, max_green] range.
 
-There is **no OFF action** --- the agent must always select a valid green phase. The OFF action (originally action index 7) was removed after it caused all-green collisions in early development.
+```text
+action ~ TanhNormal(mean, std)
+duration = per_tls_min + action * (per_tls_max - per_tls_min)
+```
+
+The policy outputs `mean` and `log_std`. The action is sampled as `(tanh(u) + 1) / 2` where `u ~ Normal(mean, std)`. Correct log_prob requires a Jacobian correction:
+
+```text
+log P(action) = log P(u) - log(1 - tanh²(u))
+```
+
+**Why per-TLS bounds matter:** Using global min/max (10.5s–123s across all 83 TLS) caused action=0.5 to map to 66.5s green, producing 200s+ cycles. Per-TLS bounds ensure action=0.5 maps to the midpoint of *that* intersection's reasonable range (e.g., 22–45s for medium intersections).
+
+There is **no phase selection** for single-phase TLS (pedestrian crossings) — they have only one green phase. The agent only controls duration. Multi-phase intersections have phase selection implicitly via the committed phase at the last decision step.
 
 ### Step Function: Tick-by-Tick State Machine
 
 The `step()` function implements a per-TLS state machine that processes yellow, all-red, and green transitions independently for each intersection:
 
-```
+```text
 For each decision step (delta_time = 30 sim ticks = 15 real seconds):
 
 1. RESOLVE target phases from actions
@@ -355,8 +369,8 @@ This design means:
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | `delta_time` | 30 ticks | 15 real seconds per decision |
-| `sim_length` | 1800 ticks | 900 real seconds total |
-| Steps per episode | 60 | 1800 / 30 |
+| `sim_length` | 3600 ticks | 1800 real seconds total |
+| Steps per episode | 120 | 3600 / 30 |
 | Warm-up | 30 ticks | Before first observation |
 
 ### Early Termination
@@ -375,7 +389,7 @@ The reward function follows a **pressure-primary** design, inspired by the **Pre
 
 The per-TLS reward is a weighted sum of six terms:
 
-```
+```text
 reward = wait_term + queue_term + fairness_term + throughput_term + pressure_term + switch_term
 ```
 
@@ -404,7 +418,7 @@ Average queue length (halting vehicles) across all incoming edges, normalized by
 **Switch Penalty (w=0.15):**
 Applied only when the agent switches to a different phase. Scaled by the **per-TLS transition cost**:
 
-```
+```text
 transition_cost = (yellow_steps + allred_steps) / avg_transition_across_all_TLS
 ```
 
@@ -420,7 +434,7 @@ Maximum queue across all incoming edges (worst-case approach). Prevents the agen
 
 ## 7. MAPPO Agent
 
-### Algorithm: Multi-Agent PPO with Shared Parameters
+### Algorithm: Multi-Agent PPO with Shared Parameters and Continuous Policy
 
 The MAPPO (Multi-Agent Proximal Policy Optimization) agent implements the **Centralized Training, Decentralized Execution (CTDE)** paradigm:
 
@@ -429,12 +443,13 @@ The MAPPO (Multi-Agent Proximal Policy Optimization) agent implements the **Cent
 
 ### Network Architecture (`ActorCritic`)
 
-```
-ACTOR (local obs -> action logits):
+```text
+ACTOR (local obs -> TanhNormal distribution):
     Linear(39, 256) -> ReLU
     Linear(256, 256) -> ReLU
-    Linear(256, 7)   -> action logits
-    + action masking (invalid actions set to -1e8)
+    Linear(256, 1)   -> mean (unbounded)
+    log_std           -> learnable scalar, clamped [-4, 2]
+    → TanhNormal(mean, exp(log_std))  # samples in [0, 1]
 
 CRITIC (local obs + global obs -> value):
     Linear(78, 256) -> ReLU       # 39 local + 39 global = 78
@@ -444,9 +459,13 @@ CRITIC (local obs + global obs -> value):
 
 **Global observation:** Mean of all agent observations (aggregated view of network-wide traffic state).
 
-### Action Masking
+**TanhNormal log_prob** must include the Jacobian correction for the change-of-variables through tanh. Without it, PPO ratios are wrong and entropy gets stuck at 1.7 (near-uniform):
 
-Each TLS may have fewer than 7 green phases. Invalid action indices are masked to `-1e8` before the softmax, ensuring the agent only selects valid phases. The valid action mask is constructed per-TLS and stored in the rollout buffer for PPO updates.
+```python
+u = atanh(action * 2 - 1)               # inverse tanh, clamped for stability
+lp = Normal(mean, std).log_prob(u)
+lp = lp - log(0.5 * (1 - tanh(u)²) + eps)  # Jacobian correction
+```
 
 ### Rollout Buffer and GAE
 
@@ -454,7 +473,7 @@ Transitions are stored in an on-policy `RolloutBuffer` containing per-agent tupl
 
 **Generalized Advantage Estimation (GAE):**
 
-```
+```text
 delta_t = r_t + gamma * V(s_{t+1}) * (1 - done) - V(s_t)
 A_t = delta_t + gamma * lambda * (1 - done_{t+1}) * A_{t+1}
 returns_t = A_t + V(s_t)
@@ -470,7 +489,7 @@ For `ppo_epochs` iterations over shuffled mini-batches:
 2. Compute probability ratio: `r = exp(log_pi_new - log_pi_old)`
 3. Clipped surrogate loss: `L_actor = -min(r * A, clip(r, 1-eps, 1+eps) * A)`
 4. Value loss: `L_critic = MSE(V, returns)`
-5. Total loss: `L = L_actor + 0.5 * L_critic - 0.01 * entropy`
+5. Total loss: `L = L_actor + 0.5 * L_critic - entropy_coef * entropy`
 6. Gradient clipping at norm 0.5
 
 ### Hyperparameters
@@ -482,7 +501,7 @@ For `ppo_epochs` iterations over shuffled mini-batches:
 | `gamma` | 0.99 | Discount factor |
 | `gae_lambda` | 0.95 | GAE lambda |
 | `clip_eps` | 0.2 | PPO clip range |
-| `entropy_coef` | 0.01 | Entropy bonus coefficient |
+| `entropy_coef` | 0.01 | Entropy bonus coefficient (lower = less exploration drift) |
 | `value_coef` | 0.5 | Value loss coefficient |
 | `max_grad_norm` | 0.5 | Gradient clipping norm |
 | `ppo_epochs` | 10 | PPO optimization epochs per rollout |
@@ -506,31 +525,60 @@ A Tkinter-based GUI provides training management:
 
 ### Training Loop (`train.py`)
 
-The training loop supports both DQN and MAPPO algorithms:
+The training loop supports DQN, MAPPO (sequential and parallel), and MASAC:
 
-1. Initialize `SumoTrafficEnv` with network files
-2. Print banner with TLS count, obs/action dims, steps per episode
-3. For each episode:
-   - Reset environment, get initial observations
-   - For each step: select actions (with exploration), step environment, store transitions
-   - At episode end: run PPO update (MAPPO) or batch DQN update
-   - Log metrics, save checkpoint if best reward
+```bash
+# Recommended: parallel MAPPO, continuous, 4 workers
+python -m src.ai.train \
+  --algorithm mappo \
+  --action-mode continuous \
+  --workers 4 \
+  --episodes 1000 \
+  --delta-time 30 \
+  --sim-length 1800 \
+  --lr 0.0003 \
+  --entropy-coef 0.01 \
+  --net sumo/danang/danang.net.xml \
+  --route sumo/danang/danang.rou.xml \
+  --cfg sumo/danang/danang.sumocfg
+```
+
+**Parallel workers:** `--workers N` spawns N SUMO instances simultaneously, each collecting one episode. Combined transitions feed one PPO update. Recommended: 4 workers (8 workers causes CUDA OOM with a GPU).
+
+**Best model saving:** Saved by `wait_time / vehicle_count` (normalized), only when `vehicles >= 200`. This prevents saving lucky low-traffic episodes where any policy achieves near-zero wait.
+
+**`--resume-from`:** Loads actor weights only from a checkpoint. Critic starts fresh to avoid value miscalibration when the reward function has changed since the checkpoint was saved.
 
 ### Key Training Parameters
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `lr` | 0.001 | Learning rate for Adam optimizer |
+| `lr` | 3e-4 | Learning rate for Adam optimizer |
 | `gamma` | 0.99 | Discount factor |
 | `delta_time` | 30 | Sim ticks per decision (15 real seconds) |
-| `sim_length` | 1800 | Sim ticks per episode (900 real seconds) |
+| `sim_length` | 1800 | Sim ticks per training episode (900 real seconds) |
 | `hidden` | 256 | MLP hidden layer size |
-| `batch_size` | 64 | DQN replay batch size |
-| `episodes` | 100 | Default training episodes |
+| `workers` | 4 | Parallel SUMO instances |
+| `entropy_coef` | 0.01 | Lower = less entropy drift over long training runs |
+| `episodes` | 1000 | Training episodes |
 
 ### Training Log Header
 
 At startup, the environment prints per-TLS timing information (tier, yellow/allred/min_green/max_green in real seconds), enabling verification of engineering formula outputs.
+
+### MASAC Alternative (`masac_agent.py`)
+
+A Multi-Agent SAC implementation is available as an alternative to MAPPO:
+
+```text
+SACActorNetwork:  obs -> TanhNormal(mean, std)
+SACCriticNetwork: (obs, global_obs, action) -> Q-value  (twin critics)
+ReplayBuffer:     500K capacity ring buffer
+log_alpha:        auto-tuned entropy temperature (target_entropy = -1.0)
+tau:              0.005 soft target updates
+```
+
+MASAC is off-policy (reuses all past experience via replay buffer) vs MAPPO's on-policy rollouts. In practice, MASAC showed higher variance on this task due to alpha collapsing early and low-traffic episodes dominating the buffer. MAPPO with continuous TanhNormal achieved better results.
 
 ---
 
@@ -565,9 +613,9 @@ The trained model runs greedily (no exploration), selecting the highest-probabil
 
 | Metric | Baseline | AI Model | Improvement |
 |--------|----------|----------|-------------|
-| Avg Wait Time | 974.5s | 175.9s | **-82%** |
-| Avg Queue Length | 5.2 | 1.2 | **-77%** |
-| Throughput | 591 | 1,078 | **+82%** |
+| Avg Wait Time | 32.1s | **0.8s** | **-98%** |
+| Avg Queue Length | 0.2 | **0.0** | **-88%** |
+| Throughput | 1,479 | 1,468 | -1% |
 
 ---
 
@@ -642,7 +690,7 @@ Eight vehicle types are calibrated for Vietnamese conditions:
 
 ## Appendix A: File Structure
 
-```
+```text
 WeSaveTime-ASEAN/
   src/
     ai/

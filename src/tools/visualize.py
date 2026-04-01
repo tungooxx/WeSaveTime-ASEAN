@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
 import os
 import sys
 import threading
@@ -163,6 +164,9 @@ class Visualizer:
             ("avg_queue", "Avg Queue"),
             ("reward", "Step Reward"),
             ("total_reward", "Total Reward"),
+            ("total_green", "Total Green (s)"),
+            ("total_yellow", "Total Yellow (s)"),
+            ("total_red", "Total Red (s)"),
         ]
         for i, (key, text) in enumerate(labels):
             tk.Label(mf, text=text + ":", font=("Segoe UI", 9),
@@ -483,6 +487,9 @@ class Visualizer:
                 tid: Counter() for tid in env.tls_ids
             }
             total_reward = 0.0
+            total_green = 0.0
+            total_yellow = 0.0
+            total_red = 0.0
             step = 0
             terminated = truncated = False
 
@@ -526,6 +533,21 @@ class Visualizer:
                 # Get metrics
                 metrics = env.get_metrics()
 
+                # Accumulate G/Y/R across all TLS this step
+                step_secs = env.delta_time * 0.5  # ticks -> real seconds
+                for tid in env.tls_ids:
+                    try:
+                        state = env._conn.trafficlight.getRedYellowGreenState(tid)
+                        for c in state:
+                            if c in ('G', 'g'):
+                                total_green += step_secs
+                            elif c in ('y', 'Y'):
+                                total_yellow += step_secs
+                            elif c in ('r', 'R'):
+                                total_red += step_secs
+                    except Exception:
+                        pass
+
                 # Update panel
                 self._update_var("sim_time", f"{metrics.get('sim_time', 0)}s")
                 self._update_var("vehicles", str(metrics.get('total_vehicles', 0)))
@@ -533,6 +555,9 @@ class Visualizer:
                 self._update_var("avg_queue", f"{metrics.get('avg_queue_length', 0):.1f}")
                 self._update_var("reward", f"{step_reward:+.3f}")
                 self._update_var("total_reward", f"{total_reward:+.1f}")
+                self._update_var("total_green", f"{total_green:.0f}")
+                self._update_var("total_yellow", f"{total_yellow:.0f}")
+                self._update_var("total_red", f"{total_red:.0f}")
 
                 # Update baseline vs AI comparison
                 self._update_comparison(metrics)
@@ -551,8 +576,7 @@ class Visualizer:
                         # Per-TLS timing
                         yw = env._yellow_steps.get(tid, 6) * 0.5
                         ar = env._allred_steps.get(tid, 4) * 0.5
-                        gr = max(env.delta_time - env._yellow_steps.get(tid, 6)
-                                 - env._allred_steps.get(tid, 4), 1) * 0.5
+                        gr = env._committed_green.get(tid, env.delta_time) * 0.5
                         # Get tier from geometry
                         tls_info = env._tls_map.get(tid)
                         tier = tls_info.geometry.tier[:3].upper() if (
@@ -837,10 +861,17 @@ class BaselineVisualizer:
         except Exception as e:
             import traceback
             print(traceback.format_exc())
+            msg = str(e)
             try:
-                self.root.after(0, lambda: self._status_var.set(f"Error: {e}"))
+                self.root.after(0, lambda: self._status_var.set(f"Error: {msg}"))
             except Exception:
                 pass
+
+
+def _run_baseline_window(common: dict) -> None:
+    """Module-level target for baseline multiprocessing.Process (must be pickleable)."""
+    bl = BaselineVisualizer(**common)
+    bl.run()
 
 
 # ── CLI ────────────────────────────────────────────────────────────────
@@ -887,13 +918,9 @@ def main():
             print(f"Model not found: {args.model}")
             sys.exit(1)
 
-        # Launch baseline in a separate thread with its own Tk root
-        def run_baseline_window():
-            bl = BaselineVisualizer(**common)
-            bl.run()
-
-        bl_thread = threading.Thread(target=run_baseline_window, daemon=True)
-        bl_thread.start()
+        # Launch baseline in a separate process (Tk is not thread-safe)
+        bl_proc = multiprocessing.Process(target=_run_baseline_window, args=(common,), daemon=True)
+        bl_proc.start()
         time.sleep(2)  # let baseline SUMO-gui start first
 
     # Default: run AI

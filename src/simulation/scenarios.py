@@ -89,10 +89,10 @@ _register(Scenario(
 
 _register(Scenario(
     id="lane_disruption",
-    name="Lane Disruption (Construction / Accident)",
+    name="Peak Hour High Density (Level 1)",
     description=(
-        "5 PM rush hour with a lane blocked on a major approach. Traffic must "
-        "merge, causing cascading congestion upstream."
+        "5 PM rush hour with high density and reduced speed factor. "
+        "(Lane-blocking events require Level 2.)"
     ),
     time_of_day=17.0,
     weather="cloudy",
@@ -108,10 +108,10 @@ _register(Scenario(
 
 _register(Scenario(
     id="rush_hour_school",
-    name="School Rush Hour",
+    name="School Zone Morning (Level 1)",
     description=(
-        "7:30 AM near a school zone. A directional surge of motorbikes and "
-        "cars from the west, plus slow-moving buses picking up students."
+        "7:30 AM school zone conditions: high motorbike/bus mix with "
+        "very high density. (Directional surge events require Level 2.)"
     ),
     time_of_day=7.5,
     weather="sunny",
@@ -127,10 +127,10 @@ _register(Scenario(
 
 _register(Scenario(
     id="emergency_vehicle",
-    name="Emergency Vehicle Priority",
+    name="Moderate Afternoon Traffic (Level 1)",
     description=(
-        "Normal 2 PM traffic with an ambulance that must cross the network "
-        "from intersection 0 to intersection 5 with signal pre-emption."
+        "Normal 2 PM traffic with moderate density. "
+        "(Emergency vehicle pre-emption requires Level 2.)"
     ),
     time_of_day=14.0,
     weather="sunny",

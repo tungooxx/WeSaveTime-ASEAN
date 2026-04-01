@@ -182,24 +182,12 @@ class SumoTrafficEnv(gym.Env):
         # ── Per-TLS duration levels (in sim steps) ────────────────────
         # N levels evenly spread from min_green to max_green for each TLS.
         self._duration_levels: dict[str, list[int]] = {}
+        n = self.num_duration_levels
         for tid in self.tls_ids:
             mn = self._min_green_steps[tid]
             mx = self._max_green_steps[tid]
-
-            # Read SUMO's default green duration from the TLS program
-            tls_info = self._tls_map.get(tid)
-            if tls_info and tls_info.phases:
-                default_dur = max(
-                    int(p.duration / 0.5)
-                    for p in tls_info.phases
-                    if any(c in ('G', 'g') for c in p.state)
-                ) if tls_info.phases else 60
-            else:
-                default_dur = 60
-
-            n = self.num_duration_levels
             if n <= 1:
-                self._duration_levels[tid] = [max(mn, min(mx, default_dur))]
+                self._duration_levels[tid] = [mn]
             elif n == 2:
                 self._duration_levels[tid] = [mn, mx]
             else:
@@ -209,6 +197,8 @@ class SumoTrafficEnv(gym.Env):
                     val = int(mn + t * (mx - mn))
                     levels.append(val)
                 self._duration_levels[tid] = levels
+        self._flex_min_steps: int = min(self._min_green_steps.values())
+        self._flex_max_steps: int = max(self._max_green_steps.values())
 
         # ── Reward importance weights ─────────────────────────────────
         # Weight by complexity: multi-phase intersections matter more
@@ -296,9 +286,15 @@ class SumoTrafficEnv(gym.Env):
         return len(self.tls_ids)
 
     def get_valid_actions(self, tls_id: str) -> list[int]:
-        """Valid action indices for discrete mode."""
+        """Valid action indices for discrete mode.
+
+        Returns a single-element list [0] when the TLS is locked (countdown > 0)
+        so the trainer doesn't sample actions that step() will ignore.
+        """
         if self.action_mode == "continuous":
             return [0]  # continuous has 1 "action" (the float)
+        if self._countdown.get(tls_id, 0) > 0:
+            return [0]  # locked — only no-op/min-duration valid
         return list(range(self.num_duration_levels))
 
     def decode_duration_steps(self, tls_id: str, action) -> int:
@@ -308,13 +304,16 @@ class SumoTrafficEnv(gym.Env):
         Continuous mode: action is a float 0.0-1.0 mapped to min-max range.
         """
         levels = self._duration_levels.get(tls_id, [60])
-        mn = self._min_green_steps.get(tls_id, 30)
-        mx = self._max_green_steps.get(tls_id, 90)
+        mn = self._flex_min_steps
+        mx = self._flex_max_steps
 
         if self.action_mode == "continuous":
             t = float(action) if not hasattr(action, '__len__') else float(action[0])
             t = max(0.0, min(1.0, t))
-            return int(mn + t * (mx - mn))
+            # Use per-TLS bounds so ped crossings don't inflate the range
+            per_mn = self._min_green_steps.get(tls_id, mn)
+            per_mx = self._max_green_steps.get(tls_id, mx)
+            return int(per_mn + t * (per_mx - per_mn))
         else:
             idx = min(int(action), len(levels) - 1)
             return levels[idx]
@@ -470,7 +469,17 @@ class SumoTrafficEnv(gym.Env):
         for _ in range(self.delta_time):
             self._sim_step_and_track()
 
-        # All TLS are AI-controlled — no forced green needed
+        # Resync internal phase state to SUMO's live phase after warm-up
+        for tls_id in self.tls_ids:
+            try:
+                live_phase = self._conn.trafficlight.getPhase(tls_id)
+                self._current_phases[tls_id] = live_phase
+                # Map live phase to cycle index
+                gp = self._green_phases.get(tls_id, [0])
+                if live_phase in gp:
+                    self._cycle_index[tls_id] = gp.index(live_phase)
+            except traci.TraCIException:
+                pass
 
         obs = self._get_observations()
         return obs, {"step": self._sim_step, "sim_time": self._sim_step}
@@ -752,9 +761,8 @@ class SumoTrafficEnv(gym.Env):
         max_g = self._max_green_steps.get(tls_id, 120)
         vec[MAX_INCOMING_EDGES * 3 + 1] = min(actual_green_elapsed / max_g, 1.0)
 
-        # Min-green satisfied flag (per-TLS threshold)
-        min_g = self._min_green_steps.get(tls_id, 30)
-        vec[MAX_INCOMING_EDGES * 3 + 2] = 1.0 if actual_green_elapsed >= min_g else 0.0
+        # Slot [38]: unused (was min-green flag, removed — no fixed constraints)
+        vec[MAX_INCOMING_EDGES * 3 + 2] = 0.0
 
         # [Level 2 REMOVED] Number of active events (normalized)
         # vec[MAX_INCOMING_EDGES * 4 + 3] = min(n_events / 5.0, 1.0)
@@ -819,9 +827,6 @@ class SumoTrafficEnv(gym.Env):
                 pressure=pressure,
                 phase_changed=(tls_id in changed_tls_set) if changed_tls_set else False,
                 transition_cost=tc,
-                # Baseline bonus only for multi-phase TLS (real intersections)
-                # Single-phase ped crossings always have low wait — bonus is meaningless
-                baseline_active=(self.baseline_active and tls_info.num_green_phases >= 2),
             )
 
             # Apply importance weighting
@@ -829,30 +834,6 @@ class SumoTrafficEnv(gym.Env):
 
             self._prev_waiting[tls_id] = total_wait
             self._prev_throughput[tls_id] = incoming_veh
-
-        # ── Global baseline bonus ─────────────────────────────────────
-        # Compute network-wide avg wait, compare to baseline.
-        # ALL agents get the same bonus/penalty — shared team reward.
-        # This tells every agent: "the whole network is winning/losing."
-        if self.baseline_active and rewards:
-            try:
-                # Network-wide average wait time this step
-                net_wait = sum(
-                    self._conn.edge.getWaitingTime(eid)
-                    for tls in self._tls_list
-                    for eid in tls.incoming_edges[:4]
-                ) / max(len(self._tls_list), 1)
-            except Exception:
-                net_wait = 0.0
-
-            baseline_wait = 25.0  # from comparison runs
-            # +0.5 when net_wait=0, 0 when net_wait=baseline, -0.5 when 2x baseline
-            global_bonus = 0.5 * float(np.clip(
-                (baseline_wait - net_wait) / max(baseline_wait, 1.0), -1.0, 1.0
-            ))
-
-            for tls_id in rewards:
-                rewards[tls_id] += global_bonus
 
         return rewards
 
