@@ -39,6 +39,46 @@ _DANANG = {
     "cfg": os.path.join(_PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"),
 }
 
+# ── Level presets (known-good hyperparameters) ──────────────────────────
+#
+# Level 1 — OBS_DIM=39, ACT_DIM=1 (single duration, branch: level-1)
+#   Achieved: -98% wait (32.1s → 0.8s), -88% queue
+#   Training: 2752 episodes; best model saved at ep 48 before entropy drift
+#
+# Level 2 — OBS_DIM=63, ACT_DIM=7 (per-phase splits + upstream awareness)
+#   Adds: time-averaged wait reward, upstream obs, per-phase action vector
+#
+LEVEL_PRESETS = {
+    "Level 1": {
+        "episodes":        1000,
+        "lr":              0.0003,
+        "hidden":          256,
+        "gamma":           0.99,
+        "delta_time":      30,       # 15 real seconds per decision
+        "sim_length":      1800,     # 900 real seconds per training episode
+        "seed":            42,
+        "entropy_coef":    0.01,
+        "action_mode":     "continuous",
+        "num_workers":     4,
+        "algorithm":       "mappo",
+        "note":            "OBS=39, ACT=1 — single duration per cycle",
+    },
+    "Level 2": {
+        "episodes":        1000,
+        "lr":              0.0003,
+        "hidden":          256,
+        "gamma":           0.99,
+        "delta_time":      30,
+        "sim_length":      1800,
+        "seed":            42,
+        "entropy_coef":    0.01,
+        "action_mode":     "continuous",
+        "num_workers":     4,
+        "algorithm":       "mappo",
+        "note":            "OBS=63, ACT=7 — per-phase splits + upstream awareness",
+    },
+}
+
 # ── Colors (Catppuccin Mocha) ───────────────────────────────────────────
 
 BG = "#1e1e2e"
@@ -198,37 +238,64 @@ class RLDashboard:
                              padx=10, pady=8)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
 
+        # ── Level selector ──────────────────────────────────────────
+        level_row = tk.Frame(left, bg=BG)
+        level_row.grid(row=0, column=0, columnspan=2, sticky=tk.EW,
+                       pady=(0, 8))
+        tk.Label(level_row, text="Level:", font=("Segoe UI", 10, "bold"),
+                 fg=YELLOW, bg=BG).pack(side=tk.LEFT)
+        self._level_var = tk.StringVar(value="Level 2")
+        for lvl in ("Level 1", "Level 2"):
+            rb = tk.Radiobutton(
+                level_row, text=lvl, variable=self._level_var, value=lvl,
+                command=self._apply_level_preset,
+                font=("Segoe UI", 9, "bold"),
+                fg=GREEN if lvl == "Level 2" else BLUE,
+                bg=BG, selectcolor=BG2, activebackground=BG,
+                activeforeground=FG,
+            )
+            rb.pack(side=tk.LEFT, padx=(8, 0))
+        self._level_note_var = tk.StringVar(
+            value=LEVEL_PRESETS["Level 2"]["note"])
+        tk.Label(left, textvariable=self._level_note_var,
+                 font=("Segoe UI", 7), fg=FG2, bg=BG, wraplength=180,
+                 justify=tk.LEFT).grid(row=1, column=0, columnspan=2,
+                                       sticky=tk.W, pady=(0, 6))
+
         self._params: dict[str, tk.Variable] = {}
+        # Defaults match Level 2 preset (= Level 1 known-good hyperparameters)
         param_defs = [
-            ("episodes",       "Episodes",        100,    int),
-            ("lr",             "Learning Rate",    0.0003, float),
-            ("hidden",         "Hidden Size",      256,    int),
-            ("gamma",          "Gamma",            0.99,   float),
-            ("batch_size",     "Batch Size",       64,     int),
-            ("buffer_capacity","Buffer Size",      200000, int),
-            ("epsilon_decay",  "Epsilon Decay",    500000, int),
-            ("delta_time",     "Delta Time (ticks)", 30,    int),
-            ("sim_length",     "Sim Steps",         3600,   int),
-            ("seed",           "Seed",             42,     int),
-            ("entropy_coef",   "Entropy Coef",     0.03,   float),
+            ("episodes",       "Episodes",          1000,   int),
+            ("lr",             "Learning Rate",      0.0003, float),
+            ("hidden",         "Hidden Size",        256,    int),
+            ("gamma",          "Gamma",              0.99,   float),
+            ("batch_size",     "Batch Size (DQN)",   64,     int),
+            ("buffer_capacity","Buffer Size (DQN)",  200000, int),
+            ("epsilon_decay",  "Eps Decay (DQN)",    500000, int),
+            ("delta_time",     "Delta Time (ticks)", 30,     int),
+            ("sim_length",     "Sim Steps",          1800,   int),
+            ("seed",           "Seed",               42,     int),
+            ("entropy_coef",   "Entropy Coef",       0.01,   float),
         ]
+
+        _PARAM_ROW_OFFSET = 2  # rows 0-1 used by level selector + note
 
         self._param_entries: list[tk.Entry] = []
         for i, (key, label, default, _) in enumerate(param_defs):
             tk.Label(left, text=label + ":", font=("Segoe UI", 9),
                      fg=FG2, bg=BG, anchor=tk.W).grid(
-                row=i, column=0, sticky=tk.W, pady=2)
+                row=i + _PARAM_ROW_OFFSET, column=0, sticky=tk.W, pady=2)
             var = tk.StringVar(value=str(default))
             self._params[key] = var
             entry = tk.Entry(left, textvariable=var, width=12,
                              bg=BG2, fg=FG, insertbackground=FG,
                              font=("Consolas", 10))
-            entry.grid(row=i, column=1, padx=(10, 0), pady=2)
+            entry.grid(row=i + _PARAM_ROW_OFFSET, column=1, padx=(10, 0), pady=2)
             self._param_entries.append(entry)
         self._param_types = {k: t for k, _, _, t in param_defs}
 
         # Action mode dropdown
-        row = len(param_defs)
+        row = len(param_defs) + _PARAM_ROW_OFFSET
         tk.Label(left, text="Action Mode:", font=("Segoe UI", 9),
                  fg=FG2, bg=BG, anchor=tk.W).grid(
             row=row, column=0, sticky=tk.W, pady=2)
@@ -417,6 +484,33 @@ class RLDashboard:
         self._full_log_lines: list[str] = []
         # Per-episode TLS details cache
         self._ep_details: dict[int, list[dict]] = {}
+
+    # ── Level preset ────────────────────────────────────────────────
+
+    def _apply_level_preset(self):
+        """Fill hyperparameter fields with the selected level's preset values."""
+        preset = LEVEL_PRESETS.get(self._level_var.get(), {})
+        mapping = {
+            "episodes":        "episodes",
+            "lr":              "lr",
+            "hidden":          "hidden",
+            "gamma":           "gamma",
+            "delta_time":      "delta_time",
+            "sim_length":      "sim_length",
+            "seed":            "seed",
+            "entropy_coef":    "entropy_coef",
+        }
+        for param_key, preset_key in mapping.items():
+            if param_key in self._params and preset_key in preset:
+                self._params[param_key].set(str(preset[preset_key]))
+        if "action_mode" in preset:
+            self._action_mode_var.set(preset["action_mode"])
+        if "num_workers" in preset:
+            self._workers_var.set(str(preset["num_workers"]))
+        if "algorithm" in preset:
+            self._algo_var.set(preset["algorithm"])
+        if "note" in preset:
+            self._level_note_var.set(preset["note"])
 
     # ── Training control ────────────────────────────────────────────
 
