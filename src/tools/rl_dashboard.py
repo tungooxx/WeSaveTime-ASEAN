@@ -170,6 +170,7 @@ class RLDashboard:
         self._ep_nums: list[int] = []
         self._rewards: list[float] = []
         self._waits: list[float] = []
+        self._tawaits: list[float] = []
         self._epsilons: list[float] = []
         self._best_reward = -float("inf")
 
@@ -231,7 +232,7 @@ class RLDashboard:
         tk.Label(left, text="Action Mode:", font=("Segoe UI", 9),
                  fg=FG2, bg=BG, anchor=tk.W).grid(
             row=row, column=0, sticky=tk.W, pady=2)
-        self._action_mode_var = tk.StringVar(value="discrete")
+        self._action_mode_var = tk.StringVar(value="continuous")
         action_mode_menu = tk.OptionMenu(
             left, self._action_mode_var, "discrete", "continuous")
         action_mode_menu.configure(bg=BG2, fg=FG, font=("Consolas", 9),
@@ -348,8 +349,8 @@ class RLDashboard:
 
         for ax, title, color in [
             (self._ax_reward, "Mean Reward", GREEN),
-            (self._ax_wait, "Avg Wait Time (s)", RED),
-            (self._ax_eps, "Epsilon", BLUE),
+            (self._ax_wait, "Wait (s) — snapshot vs time-avg", RED),
+            (self._ax_eps, "Entropy / Epsilon", BLUE),
         ]:
             ax.set_facecolor(BG2)
             ax.set_title(title, fontsize=10, color=FG, pad=6)
@@ -377,7 +378,7 @@ class RLDashboard:
             bg=YELLOW, fg="#1e1e2e", width=14, command=self._copy_log)
         self._copy_btn.pack(side=tk.RIGHT)
 
-        cols = ("src", "ep", "reward", "loss", "eps", "wait", "queue",
+        cols = ("src", "ep", "reward", "loss", "eps", "wait", "tawait", "queue",
                 "veh", "add", "rm", "time")
         style = ttk.Style()
         style.theme_use("clam")
@@ -396,7 +397,7 @@ class RLDashboard:
         heads = {
             "src": ("Src", 35), "ep": ("Ep", 40), "reward": ("Reward", 70),
             "loss": ("Loss", 65), "eps": ("Eps", 55),
-            "wait": ("Wait", 55), "queue": ("Queue", 50),
+            "wait": ("Wait↓", 55), "tawait": ("TAWait", 58), "queue": ("Queue", 50),
             "veh": ("Veh", 45), "add": ("+Add", 40),
             "rm": ("-Rm", 40), "time": ("Time", 45),
         }
@@ -469,6 +470,7 @@ class RLDashboard:
         self._ep_nums.clear()
         self._rewards.clear()
         self._waits.clear()
+        self._tawaits.clear()
         self._epsilons.clear()
         self._best_reward = -float("inf")
         self._tree.delete(*self._tree.get_children())
@@ -641,12 +643,14 @@ class RLDashboard:
         self._ep_nums.append(ep_num)
         self._rewards.append(reward)
         self._waits.append(ep["avg_wait"])
-        self._epsilons.append(ep["epsilon"])
+        self._tawaits.append(ep.get("time_avg_wait", ep["avg_wait"]))
+        self._epsilons.append(ep.get("entropy", ep["epsilon"]))
 
         # Update table
         source = ep.get("source", "sumo")
         src_label = "S" if source == "surrogate" else "R"
         veh_display = ep["vehicles"] if ep["vehicles"] > 0 else "~"
+        tawait = ep.get("time_avg_wait", 0.0)
         self._tree.insert("", tk.END, values=(
             src_label,
             ep_num,
@@ -654,6 +658,7 @@ class RLDashboard:
             f"{ep['mean_loss']:.4f}",
             f"{ep['epsilon']:.3f}",
             f"{ep['avg_wait']:.1f}",
+            f"{tawait:.1f}",
             f"{ep['avg_queue']:.1f}",
             veh_display,
             f"+{n_add}" if n_add else "0",
@@ -670,7 +675,8 @@ class RLDashboard:
             f"[{src_tag}] Ep {ep_num:>4}/{total} | "
             f"R={reward:+.4f} | Loss={ep['mean_loss']:.4f} | "
             f"eps={ep['epsilon']:.3f} | "
-            f"Wait={ep['avg_wait']:.1f}s | Queue={ep['avg_queue']:.1f} | "
+            f"Wait={ep['avg_wait']:.1f}s | TAWait={ep.get('time_avg_wait', 0.0):.1f}s | "
+            f"Queue={ep['avg_queue']:.1f} | "
             f"Veh={ep['vehicles']} | Col={n_col} | "
             f"+Add={n_add} -Rm={n_rm} | {ep['time_s']:.0f}s"
         )
@@ -688,24 +694,42 @@ class RLDashboard:
     def _update_charts(self):
         for ax, data, color in [
             (self._ax_reward, self._rewards, GREEN),
-            (self._ax_wait, self._waits, RED),
             (self._ax_eps, self._epsilons, BLUE),
         ]:
             ax.clear()
             ax.set_facecolor(BG2)
             ax.plot(self._ep_nums, data, color=color, linewidth=1.5)
             if data:
-                ax.fill_between(self._ep_nums, data,
-                                alpha=0.15, color=color)
+                ax.fill_between(self._ep_nums, data, alpha=0.15, color=color)
             ax.tick_params(colors=FG2, labelsize=8)
             for spine in ax.spines.values():
                 spine.set_color(BG3)
             ax.grid(True, alpha=0.2, color=FG2)
 
+        # Wait chart: snapshot (red) + time-averaged (orange)
+        self._ax_wait.clear()
+        self._ax_wait.set_facecolor(BG2)
+        if self._waits:
+            self._ax_wait.plot(self._ep_nums, self._waits,
+                               color=RED, linewidth=1.5, label="Snapshot")
+            self._ax_wait.fill_between(self._ep_nums, self._waits,
+                                       alpha=0.15, color=RED)
+        if self._tawaits:
+            self._ax_wait.plot(self._ep_nums, self._tawaits,
+                               color=ORANGE, linewidth=1.2,
+                               linestyle="--", label="Time-Avg")
+        if self._waits or self._tawaits:
+            self._ax_wait.legend(fontsize=7, labelcolor=FG,
+                                 facecolor=BG2, edgecolor=BG3)
+        self._ax_wait.tick_params(colors=FG2, labelsize=8)
+        for spine in self._ax_wait.spines.values():
+            spine.set_color(BG3)
+        self._ax_wait.grid(True, alpha=0.2, color=FG2)
+
         titles = [
             (self._ax_reward, "Mean Reward"),
-            (self._ax_wait, "Avg Wait Time (s)"),
-            (self._ax_eps, "Epsilon"),
+            (self._ax_wait, "Wait (s) — snapshot vs time-avg"),
+            (self._ax_eps, "Entropy / Epsilon"),
         ]
         for ax, title in titles:
             ax.set_title(title, fontsize=10, color=FG, pad=6)
