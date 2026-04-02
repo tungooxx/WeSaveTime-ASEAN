@@ -113,7 +113,7 @@ class Visualizer:
 
     def __init__(self, model_path: str, net_file: str, route_file: str,
                  sumo_cfg: str, hidden: int = 256, delta_time: int = 30,
-                 sim_length: int = 3600, seed: int = 1000, speed: float = 0.05):
+                 sim_length: int = 1800, seed: int = 1000, speed: float = 0.05):
         self.model_path = model_path
         self.net_file = net_file
         self.route_file = route_file
@@ -749,7 +749,7 @@ class BaselineVisualizer:
     """Run SUMO-gui with default timing (no AI) through the same env."""
 
     def __init__(self, net_file, route_file, sumo_cfg,
-                 delta_time=30, sim_length=3600, seed=1000, speed=0.05):
+                 delta_time=30, sim_length=1800, seed=1000, speed=0.05):
         self.net_file = net_file
         self.route_file = route_file
         self.sumo_cfg = sumo_cfg
@@ -891,7 +891,7 @@ def main():
         _PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"))
     ap.add_argument("--hidden", type=int, default=256)
     ap.add_argument("--delta-time", type=int, default=30)
-    ap.add_argument("--sim-length", type=int, default=3600)
+    ap.add_argument("--sim-length", type=int, default=1800)
     ap.add_argument("--seed", type=int, default=1000)
     ap.add_argument("--speed", type=float, default=0.05,
                     help="Delay between steps in seconds (0=max speed)")
