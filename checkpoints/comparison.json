@@ -1,17 +1,17 @@
 {
   "baseline": {
-    "avg_wait": 26.432,
-    "avg_queue": 0.154,
-    "throughput": 1476.8
+    "avg_wait": 31.30666666666667,
+    "avg_queue": 0.16666666666666666,
+    "throughput": 1472.6666666666667
   },
   "model": {
-    "avg_wait": 24.472,
-    "avg_queue": 0.158,
-    "throughput": 1504.4
+    "avg_wait": 9.683333333333334,
+    "avg_queue": 0.08333333333333333,
+    "throughput": 1525.0
   },
   "improvement": {
-    "wait_pct": 7.4,
-    "queue_pct": -2.6,
-    "throughput_pct": 1.9
+    "wait_pct": 69.1,
+    "queue_pct": 50.0,
+    "throughput_pct": 3.6
   }
 }

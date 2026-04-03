@@ -716,7 +716,7 @@ class SumoTrafficEnv(gym.Env):
         # [Level 2 REMOVED] Number of active events (normalized)
         # vec[MAX_INCOMING_EDGES * 4 + 3] = min(n_events / 5.0, 1.0)
 
-        return vec
+        return np.nan_to_num(vec, nan=0.0, posinf=1.0, neginf=0.0)
 
     # ── Rewards ───────────────────────────────────────────────────────
 
