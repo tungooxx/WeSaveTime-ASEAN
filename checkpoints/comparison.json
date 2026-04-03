@@ -1,7 +1,17 @@
 {
   "baseline": {
-    "avg_wait": 25.0,
-    "avg_queue": 0.9,
-    "throughput": 1226
+    "avg_wait": 31.30666666666667,
+    "avg_queue": 0.16666666666666666,
+    "throughput": 1472.6666666666667
+  },
+  "model": {
+    "avg_wait": 9.683333333333334,
+    "avg_queue": 0.08333333333333333,
+    "throughput": 1525.0
+  },
+  "improvement": {
+    "wait_pct": 69.1,
+    "queue_pct": 50.0,
+    "throughput_pct": 3.6
   }
 }

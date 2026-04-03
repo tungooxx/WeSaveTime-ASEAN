@@ -104,8 +104,6 @@ class TrainingThread(threading.Thread):
             algorithm = self.params.get("algorithm", "dqn")
             if algorithm == "mappo":
                 # MAPPO uses different params than DQN
-                action_mode = self.params.get("action_mode", "discrete")
-                num_dur = self.params.get("num_duration_levels", 7)
                 num_workers = self.params.get("num_workers", 1)
 
                 mappo_kwargs = dict(
@@ -123,8 +121,6 @@ class TrainingThread(threading.Thread):
                     save_every=self.params["save_every"],
                     seed=self.params["seed"],
                     gui=self.params.get("gui", False),
-                    action_mode=action_mode,
-                    num_duration_levels=num_dur,
                     on_episode=lambda ep: self.metric_q.put(("episode", ep)),
                     on_status=lambda msg: self.metric_q.put(("status", msg)),
                     stop_check=lambda: self.stop_event.is_set(),
@@ -205,7 +201,6 @@ class RLDashboard:
             ("gamma",          "Gamma",            0.99,   float),
             ("batch_size",     "Batch Size",       64,     int),
             ("buffer_capacity","Buffer Size",      200000, int),
-            ("epsilon_decay",  "Epsilon Decay",    500000, int),
             ("delta_time",     "Delta Time (ticks)", 30,    int),
             ("sim_length",     "Sim Steps",         3600,   int),
             ("seed",           "Seed",             42,     int),
@@ -226,32 +221,8 @@ class RLDashboard:
             self._param_entries.append(entry)
         self._param_types = {k: t for k, _, _, t in param_defs}
 
-        # Action mode dropdown
-        row = len(param_defs)
-        tk.Label(left, text="Action Mode:", font=("Segoe UI", 9),
-                 fg=FG2, bg=BG, anchor=tk.W).grid(
-            row=row, column=0, sticky=tk.W, pady=2)
-        self._action_mode_var = tk.StringVar(value="discrete")
-        action_mode_menu = tk.OptionMenu(
-            left, self._action_mode_var, "discrete", "continuous")
-        action_mode_menu.configure(bg=BG2, fg=FG, font=("Consolas", 9),
-                                   highlightthickness=0)
-        action_mode_menu.grid(row=row, column=1, padx=(10, 0), pady=2, sticky=tk.W)
-
-        # Duration levels (for discrete mode)
-        row += 1
-        tk.Label(left, text="Duration Levels:", font=("Segoe UI", 9),
-                 fg=FG2, bg=BG, anchor=tk.W).grid(
-            row=row, column=0, sticky=tk.W, pady=2)
-        self._duration_levels_var = tk.StringVar(value="7")
-        dur_menu = tk.OptionMenu(
-            left, self._duration_levels_var, "3", "5", "7", "10", "15")
-        dur_menu.configure(bg=BG2, fg=FG, font=("Consolas", 9),
-                           highlightthickness=0)
-        dur_menu.grid(row=row, column=1, padx=(10, 0), pady=2, sticky=tk.W)
-
         # Num workers (text input like other params)
-        row += 1
+        row = len(param_defs)
         tk.Label(left, text="CPU Workers:", font=("Segoe UI", 9),
                  fg=FG2, bg=BG, anchor=tk.W).grid(
             row=row, column=0, sticky=tk.W, pady=2)
@@ -440,8 +411,6 @@ class RLDashboard:
         p["gui"] = self._gui_var.get()
         p["dyna"] = self._dyna_var.get()
         p["algorithm"] = self._algo_var.get()
-        p["action_mode"] = self._action_mode_var.get()
-        p["num_duration_levels"] = int(self._duration_levels_var.get())
         try:
             workers = int(self._workers_var.get())
             if workers < 1:

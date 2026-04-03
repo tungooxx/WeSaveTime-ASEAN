@@ -13,7 +13,6 @@ Action per TLS (duration-only):
     each phase lasts.  Like real Vietnamese signals with countdown displays,
     the phase order is predictable and the duration is committed upfront.
 
-    discrete mode: index 0..N-1 → N duration levels from min to max green
     continuous mode: float 0.0-1.0 → mapped to [min_green, max_green]
 """
 
@@ -34,14 +33,8 @@ from .reward import compute_tls_reward
 # ── Constants ─────────────────────────────────────────────────────────
 MAX_INCOMING_EDGES = 12     # pad/truncate incoming edges to this size
 MAX_GREEN_PHASES = 7        # phases 0-6
-DEFAULT_DURATION_LEVELS = 7  # default number of discrete duration levels
 ACT_OFF = -1                 # OFF action DISABLED
 MIN_GREEN_STEPS = 60         # fallback minimum green (30s real @ step_length=0.5)
-
-# Action mode: "discrete" or "continuous"
-# discrete: N levels evenly spread between min and max green (ACT_DIM = N)
-# continuous: single float 0.0-1.0 mapped to min-max range (ACT_DIM = 1)
-ACTION_MODE = "discrete"     # default, overridden per-env
 
 # Observation layout per TLS (fixed size for parameter sharing):
 #   [0..11]   queue per edge          (12)
@@ -53,9 +46,8 @@ ACTION_MODE = "discrete"     # default, overridden per-env
 OBS_DIM = MAX_INCOMING_EDGES * 3 + 3   # 39 (Level 1: no pressure, no events)
 OLD_OBS_DIM = MAX_INCOMING_EDGES * 2 + 2  # 26 (v1 layout)
 # Duration-only action space (phases auto-cycle):
-# discrete mode: ACT_DIM = num_duration_levels (default 7)
-# continuous mode: ACT_DIM = 1 (single float)
-ACT_DIM = DEFAULT_DURATION_LEVELS  # overridden by env __init__
+# continuous mode: ACT_DIM = 1 (single float 0.0-1.0)
+ACT_DIM = 1
 
 
 V2_OBS_DIM = MAX_INCOMING_EDGES * 3 + 3  # 39 (same as OBS_DIM now)
@@ -100,12 +92,8 @@ class SumoTrafficEnv(gym.Env):
         min_incoming: int = 2,
         yellow_time: int = 3,
         allred_time: int = 6,  # 3 real seconds at step_length=0.5
-        action_mode: str = "discrete",  # "discrete" or "continuous"
-        num_duration_levels: int = DEFAULT_DURATION_LEVELS,  # for discrete mode
     ) -> None:
         super().__init__()
-        self.action_mode = action_mode
-        self.num_duration_levels = num_duration_levels
 
         self.net_file = os.path.abspath(net_file)
         self.route_file = os.path.abspath(route_file)
@@ -179,24 +167,6 @@ class SumoTrafficEnv(gym.Env):
                     int(default_green_steps * 1.5)
                 )
 
-        # ── Per-TLS duration levels (in sim steps) ────────────────────
-        # N levels evenly spread from min_green to max_green for each TLS.
-        self._duration_levels: dict[str, list[int]] = {}
-        n = self.num_duration_levels
-        for tid in self.tls_ids:
-            mn = self._min_green_steps[tid]
-            mx = self._max_green_steps[tid]
-            if n <= 1:
-                self._duration_levels[tid] = [mn]
-            elif n == 2:
-                self._duration_levels[tid] = [mn, mx]
-            else:
-                levels = []
-                for i in range(n):
-                    t = i / (n - 1)
-                    val = int(mn + t * (mx - mn))
-                    levels.append(val)
-                self._duration_levels[tid] = levels
         self._flex_min_steps: int = min(self._min_green_steps.values())
         self._flex_max_steps: int = max(self._max_green_steps.values())
 
@@ -242,12 +212,8 @@ class SumoTrafficEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=0.0, high=1.0, shape=(OBS_DIM,), dtype=np.float32
         )
-        if self.action_mode == "continuous":
-            self.act_dim = 1
-            self.action_space = gym.spaces.Box(low=0.0, high=1.0, shape=(1,))
-        else:
-            self.act_dim = self.num_duration_levels
-            self.action_space = gym.spaces.Discrete(self.act_dim)
+        self.act_dim = 1
+        self.action_space = gym.spaces.Box(low=0.0, high=1.0, shape=(1,))
 
         # [Level 2 REMOVED] ── Random event config ──────────────────
         # self.random_events = random_events
@@ -286,37 +252,20 @@ class SumoTrafficEnv(gym.Env):
         return len(self.tls_ids)
 
     def get_valid_actions(self, tls_id: str) -> list[int]:
-        """Valid action indices for discrete mode.
-
-        Returns a single-element list [0] when the TLS is locked (countdown > 0)
-        so the trainer doesn't sample actions that step() will ignore.
-        """
-        if self.action_mode == "continuous":
-            return [0]  # continuous has 1 "action" (the float)
-        if self._countdown.get(tls_id, 0) > 0:
-            return [0]  # locked — only no-op/min-duration valid
-        return list(range(self.num_duration_levels))
+        """Returns [0] — continuous mode has a single action dimension."""
+        return [0]
 
     def decode_duration_steps(self, tls_id: str, action) -> int:
-        """Convert action to duration in sim steps.
+        """Convert continuous action (float 0.0-1.0) to duration in sim steps.
 
-        Discrete mode: action is an int index into duration_levels.
-        Continuous mode: action is a float 0.0-1.0 mapped to min-max range.
+        Maps the action value to the per-TLS [min_green, max_green] range.
         """
-        levels = self._duration_levels.get(tls_id, [60])
-        mn = self._flex_min_steps
-        mx = self._flex_max_steps
-
-        if self.action_mode == "continuous":
-            t = float(action) if not hasattr(action, '__len__') else float(action[0])
-            t = max(0.0, min(1.0, t))
-            # Use per-TLS bounds so ped crossings don't inflate the range
-            per_mn = self._min_green_steps.get(tls_id, mn)
-            per_mx = self._max_green_steps.get(tls_id, mx)
-            return int(per_mn + t * (per_mx - per_mn))
-        else:
-            idx = min(int(action), len(levels) - 1)
-            return levels[idx]
+        t = float(action[0]) if hasattr(action, '__len__') else float(action)
+        t = max(0.0, min(1.0, t))
+        # Use per-TLS bounds so ped crossings don't inflate the range
+        per_mn = self._min_green_steps.get(tls_id, self._flex_min_steps)
+        per_mx = self._max_green_steps.get(tls_id, self._flex_max_steps)
+        return int(per_mn + t * (per_mx - per_mn))
 
     # [TLS CANDIDATE COMMENTED OUT] ── Candidate TLS helpers ──────
     # All candidate TLS tracking, action stats, snapshots, details,
@@ -767,7 +716,7 @@ class SumoTrafficEnv(gym.Env):
         # [Level 2 REMOVED] Number of active events (normalized)
         # vec[MAX_INCOMING_EDGES * 4 + 3] = min(n_events / 5.0, 1.0)
 
-        return vec
+        return np.nan_to_num(vec, nan=0.0, posinf=1.0, neginf=0.0)
 
     # ── Rewards ───────────────────────────────────────────────────────
 

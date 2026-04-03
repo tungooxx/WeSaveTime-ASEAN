@@ -414,8 +414,6 @@ def train_mappo_with_callbacks(
     save_every: int = 10,
     seed: int = 42,
     gui: bool = False,
-    action_mode: str = "discrete",
-    num_duration_levels: int = 7,
     on_episode=None,
     on_status=None,
     stop_check=None,
@@ -432,7 +430,6 @@ def train_mappo_with_callbacks(
     env = SumoTrafficEnv(
         net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
         delta_time=delta_time, sim_length=sim_length, gui=gui, seed=seed,
-        action_mode=action_mode, num_duration_levels=num_duration_levels,
     )
     _status(f"Environment ready: {env.num_agents} TLS agents")
 
@@ -458,7 +455,7 @@ def train_mappo_with_callbacks(
         gamma=gamma, gae_lambda=gae_lambda, clip_eps=clip_eps,
         entropy_coef=entropy_coef, value_coef=value_coef,
         ppo_epochs=ppo_epochs, mini_batch_size=mini_batch_size,
-        action_mode=action_mode,
+        action_mode="continuous",
     )
     n_params = sum(p.numel() for p in agent.network.parameters())
     _status(f"MAPPO agent ready ({n_params:,} params, device={agent.device})")
@@ -483,7 +480,7 @@ def train_mappo_with_callbacks(
             "num_agents": env.num_agents, "obs_dim": OBS_DIM, "act_dim": act_dim,
             "lr": lr, "gamma": gamma, "clip_eps": clip_eps,
             "ppo_epochs": ppo_epochs, "entropy_coef": entropy_coef,
-            "action_mode": action_mode, "num_duration_levels": num_duration_levels,
+            "action_mode": "continuous",
         },
         "tls_timing": tls_timing_lines,
         "episodes": [],
@@ -603,20 +600,19 @@ def _collect_episode_worker(args):
     """
     (net_file, route_file, sumo_cfg, delta_time, sim_length,
      seed, obs_dim, worker_id, agent_state_dict, hidden, act_dim,
-     action_mode, num_duration_levels, baseline_active) = args
+     baseline_active) = args
 
     import torch as _torch
 
     env = SumoTrafficEnv(
         net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
         delta_time=delta_time, sim_length=sim_length, gui=False, seed=seed,
-        action_mode=action_mode, num_duration_levels=num_duration_levels,
     )
     env.baseline_active = baseline_active
 
     # Create local agent copy with shared weights
     agent = MAPPOAgent(obs_dim=obs_dim, act_dim=act_dim, hidden=hidden,
-                       action_mode=action_mode)
+                       action_mode="continuous")
     agent.network.load_state_dict(agent_state_dict)
     agent.network.eval()
 
@@ -716,8 +712,6 @@ def train_mappo_parallel(
     gui: bool = False,
     num_workers: int = 4,
     curriculum: bool = False,
-    action_mode: str = "discrete",
-    num_duration_levels: int = 7,
     resume_from: str | None = None,
     on_episode=None,
     on_status=None,
@@ -744,7 +738,6 @@ def train_mappo_parallel(
     env = SumoTrafficEnv(
         net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
         delta_time=delta_time, sim_length=sim_length, gui=False, seed=seed,
-        action_mode=action_mode, num_duration_levels=num_duration_levels,
     )
     tls_ids = list(env.tls_ids)
     n_agents = len(tls_ids)
@@ -769,7 +762,7 @@ def train_mappo_parallel(
         gamma=gamma, gae_lambda=gae_lambda, clip_eps=clip_eps,
         entropy_coef=entropy_coef, value_coef=value_coef,
         ppo_epochs=ppo_epochs, mini_batch_size=mini_batch_size,
-        action_mode=action_mode,
+        action_mode="continuous",
     )
     if resume_from and os.path.isfile(resume_from):
         import torch as _torch
@@ -792,7 +785,7 @@ def train_mappo_parallel(
             "algorithm": "mappo_parallel", "episodes": episodes,
             "num_agents": n_agents, "num_workers": num_workers,
             "obs_dim": OBS_DIM, "act_dim": act_dim,
-            "action_mode": action_mode, "num_duration_levels": num_duration_levels,
+            "action_mode": "continuous",
         },
         "episodes": [],
     }
@@ -862,7 +855,7 @@ def train_mappo_parallel(
             worker_args.append((
                 abs_net, active_route, abs_cfg, delta_time, sim_length,
                 ep_seed, OBS_DIM, w, state_dict, hidden, act_dim,
-                action_mode, num_duration_levels, is_full_traffic,
+                is_full_traffic,
             ))
 
         # Run workers in parallel
@@ -1316,7 +1309,6 @@ def train_masac(
     env = SumoTrafficEnv(
         net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
         delta_time=delta_time, sim_length=sim_length, gui=gui, seed=seed,
-        action_mode="continuous",
     )
     n_agents = env.num_agents
     _status(f"Environment ready: {n_agents} TLS agents")
@@ -1466,14 +1458,10 @@ def main() -> None:
     ap.add_argument("--eval-only", default=None, help="Checkpoint path for eval")
     ap.add_argument("--algorithm", choices=["dqn", "mappo", "masac"], default="dqn",
                     help="RL algorithm: dqn, mappo, or masac (default: dqn)")
-    ap.add_argument("--action-mode", choices=["discrete", "continuous"],
-                    default="discrete", help="Action mode (default: discrete)")
     ap.add_argument("--workers", type=int, default=1,
                     help="Parallel SUMO workers for MAPPO (default: 1, use 2-8 for speed)")
     ap.add_argument("--entropy-coef", type=float, default=0.03,
                     help="PPO entropy coefficient (default: 0.03, lower=less random)")
-    ap.add_argument("--duration-levels", type=int, default=7,
-                    help="Discrete duration levels (default: 7, try 3 for SHORT/MED/LONG)")
     ap.add_argument("--resume-from", default=None,
                     help="Path to checkpoint to resume training from")
 
@@ -1513,8 +1501,6 @@ def main() -> None:
                 save_every=args.save_every,
                 seed=args.seed,
                 num_workers=args.workers,
-                action_mode=args.action_mode,
-                num_duration_levels=args.duration_levels,
                 resume_from=args.resume_from,
             )
         else:
@@ -1533,8 +1519,6 @@ def main() -> None:
                 save_every=args.save_every,
                 seed=args.seed,
                 gui=args.gui,
-                action_mode=args.action_mode,
-                num_duration_levels=args.duration_levels,
             )
     elif args.algorithm == "masac":
         train_masac(
