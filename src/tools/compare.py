@@ -89,12 +89,21 @@ def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
     # Auto-detect hidden size from checkpoint weights
     if "model" in ckpt and "actor.0.weight" in ckpt["model"]:
         hidden = ckpt["model"]["actor.0.weight"].shape[0]
+    elif "model" in ckpt and "actor_backbone.0.weight" in ckpt["model"]:
+        hidden = ckpt["model"]["actor_backbone.0.weight"].shape[0]
+
+    # Auto-detect gat_out from backbone input shape
+    ckpt_gat_out = 0
+    if "model" in ckpt and "actor_backbone.0.weight" in ckpt["model"]:
+        backbone_in = ckpt["model"]["actor_backbone.0.weight"].shape[1]
+        ckpt_gat_out = backbone_in - ckpt_obs_dim
 
     if algorithm == "mappo":
-        agent = MAPPOAgent(ckpt_obs_dim, ckpt_act_dim, hidden)
+        agent = MAPPOAgent(ckpt_obs_dim, ckpt_act_dim, hidden, gat_out=ckpt_gat_out)
     else:
         agent = TrafficDQNAgent(ckpt_obs_dim, ckpt_act_dim, hidden)
     agent.load(model_path)
+    uses_gat = algorithm == "mappo" and ckpt_gat_out > 0
 
     env = SumoTrafficEnv(
         net_file=net_file, route_file=route_file, sumo_cfg=sumo_cfg,
@@ -117,11 +126,16 @@ def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
                 global_obs = np.mean(
                     [obs[tid] for tid in env.tls_ids], axis=0
                 ).astype(np.float32)
+                if uses_gat:
+                    neighbor_feats_dict, neighbor_masks_dict = env.get_neighbor_obs()
             for tid in env.tls_ids:
                 valid = env.get_valid_actions(tid)
                 o = remap_obs_for_old_model(obs[tid]) if needs_remap else obs[tid]
                 if algorithm == "mappo":
-                    a, _, _ = agent.select_action(o, global_obs, valid, greedy=True)
+                    nf = neighbor_feats_dict.get(tid) if uses_gat else None
+                    nm = neighbor_masks_dict.get(tid) if uses_gat else None
+                    a, _, _ = agent.select_action(o, global_obs, valid, greedy=True,
+                                                  neighbor_feats=nf, neighbor_mask=nm)
                 else:
                     a = agent.select_action(o, valid, greedy=True)
                 actions[tid] = a
@@ -215,8 +229,10 @@ def main():
         _PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"))
     ap.add_argument("--episodes", type=int, default=3)
     ap.add_argument("--hidden", type=int, default=256)
-    ap.add_argument("--sim-length", type=int, default=3600,
-                        help="Sim steps (3600 = 1800 real seconds at step_length=0.5)")
+    ap.add_argument("--sim-length", type=int, default=1800,
+                    help="Simulation steps (default: 1800 to match training env default)")
+    ap.add_argument("--delta-time", type=int, default=30,
+                    help="Decision interval in simulation steps (default: 30)")
     ap.add_argument("--seed", type=int, default=1000)
     args = ap.parse_args()
 
@@ -232,7 +248,11 @@ def main():
     t0 = time.time()
     baseline = run_baseline(
         args.net, args.route, args.cfg,
-        sim_length=args.sim_length, seed=args.seed, episodes=args.episodes)
+        sim_length=args.sim_length,
+        delta_time=args.delta_time,
+        seed=args.seed,
+        episodes=args.episodes,
+    )
     for r in baseline:
         print(f"    Ep {r['episode']}: wait={r['avg_wait']:.1f}s "
               f"queue={r['avg_queue']:.1f} tp={r['throughput']} "
@@ -243,8 +263,12 @@ def main():
     t0 = time.time()
     model = run_model(
         args.model, args.net, args.route, args.cfg,
-        hidden=args.hidden, sim_length=args.sim_length,
-        seed=args.seed, episodes=args.episodes)
+        hidden=args.hidden,
+        sim_length=args.sim_length,
+        delta_time=args.delta_time,
+        seed=args.seed,
+        episodes=args.episodes,
+    )
     for r in model:
         print(f"    Ep {r['episode']}: wait={r['avg_wait']:.1f}s "
               f"queue={r['avg_queue']:.1f} tp={r['throughput']} "
