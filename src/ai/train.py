@@ -168,7 +168,7 @@ def train(
                 ep_rewards[tid] += rewards[tid]
 
             # ── train ─────────────────────────────────────────────────
-            loss = agent.update()
+            loss = agent.update(n_agents=n_agents)
             if loss is not None:
                 ep_losses.append(loss)
 
@@ -330,7 +330,7 @@ def train_with_callbacks(
                 agent.store_transition(obs[tid], actions[tid], rewards[tid],
                                        next_obs[tid], terminated)
                 ep_rewards[tid] += rewards[tid]
-            loss = agent.update()
+            loss = agent.update(n_agents=n_agents)
             if loss is not None:
                 ep_losses.append(loss)
             obs = next_obs
@@ -406,7 +406,7 @@ def train_mappo_with_callbacks(
     gamma: float = 0.99,
     gae_lambda: float = 0.95,
     clip_eps: float = 0.2,
-    entropy_coef: float = 0.03,
+    entropy_coef: float = 0.0,
     value_coef: float = 0.5,
     ppo_epochs: int = 10,
     mini_batch_size: int = 256,
@@ -455,7 +455,6 @@ def train_mappo_with_callbacks(
         gamma=gamma, gae_lambda=gae_lambda, clip_eps=clip_eps,
         entropy_coef=entropy_coef, value_coef=value_coef,
         ppo_epochs=ppo_epochs, mini_batch_size=mini_batch_size,
-        action_mode="continuous",
     )
     n_params = sum(p.numel() for p in agent.network.parameters())
     _status(f"MAPPO agent ready ({n_params:,} params, device={agent.device})")
@@ -505,17 +504,22 @@ def train_mappo_with_callbacks(
             # Global state = mean of all agent observations
             all_obs = [obs[tid] for tid in env.tls_ids]
             global_obs = np.mean(all_obs, axis=0).astype(np.float32)
+            neighbor_feats, neighbor_masks = env.get_neighbor_obs()
 
             actions = {}
             for tid in env.tls_ids:
                 valid = env.get_valid_actions(tid)
-                a, lp, v = agent.select_action(obs[tid], global_obs, valid)
+                nf = neighbor_feats.get(tid)
+                nm = neighbor_masks.get(tid)
+                a, lp, v = agent.select_action(obs[tid], global_obs, valid,
+                                               neighbor_feats=nf, neighbor_mask=nm)
                 actions[tid] = a
 
                 # Store transition
                 mask = agent.get_valid_mask(valid)
                 agent.buffer.add(obs[tid], global_obs, a, lp, 0.0, v,
-                                 False, mask)  # reward filled after step
+                                 False, mask,
+                                 neighbor_feat=nf, neighbor_mask=nm)
 
             next_obs, rewards, terminated, truncated, info = env.step(actions)
             env.record_actions(actions)
@@ -533,7 +537,7 @@ def train_mappo_with_callbacks(
             step_count += 1
 
         # PPO update at end of episode
-        loss_stats = agent.update()
+        loss_stats = agent.update(n_agents=n_agents)
 
         elapsed = time.time() - t0
         mean_r = float(np.mean(list(ep_rewards.values())))
@@ -600,7 +604,7 @@ def _collect_episode_worker(args):
     """
     (net_file, route_file, sumo_cfg, delta_time, sim_length,
      seed, obs_dim, worker_id, agent_state_dict, hidden, act_dim,
-     baseline_active) = args
+     worker_device, baseline_active) = args
 
     import torch as _torch
 
@@ -611,8 +615,12 @@ def _collect_episode_worker(args):
     env.baseline_active = baseline_active
 
     # Create local agent copy with shared weights
-    agent = MAPPOAgent(obs_dim=obs_dim, act_dim=act_dim, hidden=hidden,
-                       action_mode="continuous")
+    agent = MAPPOAgent(
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        hidden=hidden,
+        device=worker_device,
+    )
     agent.network.load_state_dict(agent_state_dict)
     agent.network.eval()
 
@@ -626,13 +634,17 @@ def _collect_episode_worker(args):
     while not (terminated or truncated):
         all_obs = [obs[tid] for tid in env.tls_ids]
         global_obs = np.mean(all_obs, axis=0).astype(np.float32)
+        neighbor_feats, neighbor_masks = env.get_neighbor_obs()
 
         actions = {}
         step_transitions = []
         for tid in env.tls_ids:
             valid = env.get_valid_actions(tid)
+            nf = neighbor_feats.get(tid)
+            nm = neighbor_masks.get(tid)
             with _torch.no_grad():
-                a, lp, v = agent.select_action(obs[tid], global_obs, valid)
+                a, lp, v = agent.select_action(obs[tid], global_obs, valid,
+                                               neighbor_feats=nf, neighbor_mask=nm)
             actions[tid] = a
             mask = agent.get_valid_mask(valid)
             step_transitions.append({
@@ -641,6 +653,8 @@ def _collect_episode_worker(args):
                 "action": a, "log_prob": lp, "value": v,
                 "mask": mask.copy(),
                 "tid": tid,
+                "neighbor_feat": nf.copy() if nf is not None else None,
+                "neighbor_mask": nm.copy() if nm is not None else None,
             })
 
         next_obs, rewards, terminated, truncated, info = env.step(actions)
@@ -690,6 +704,18 @@ def _create_scaled_routes(route_file: str, fraction: float, tag: str) -> str:
     return out_path
 
 
+def _save_mappo_snapshot(path: str, model_state_dict: dict, obs_dim: int, act_dim: int) -> None:
+    """Persist a MAPPO policy snapshot that matches the rollout weights."""
+    import torch
+
+    torch.save({
+        "model": model_state_dict,
+        "obs_dim": obs_dim,
+        "act_dim": act_dim,
+        "algorithm": "mappo",
+    }, path)
+
+
 def train_mappo_parallel(
     net_file: str,
     route_file: str,
@@ -702,7 +728,7 @@ def train_mappo_parallel(
     gamma: float = 0.99,
     gae_lambda: float = 0.95,
     clip_eps: float = 0.2,
-    entropy_coef: float = 0.03,
+    entropy_coef: float = 0.0,
     value_coef: float = 0.5,
     ppo_epochs: int = 10,
     mini_batch_size: int = 256,
@@ -711,6 +737,7 @@ def train_mappo_parallel(
     seed: int = 42,
     gui: bool = False,
     num_workers: int = 4,
+    worker_device: str = "cpu",
     curriculum: bool = False,
     resume_from: str | None = None,
     on_episode=None,
@@ -762,7 +789,6 @@ def train_mappo_parallel(
         gamma=gamma, gae_lambda=gae_lambda, clip_eps=clip_eps,
         entropy_coef=entropy_coef, value_coef=value_coef,
         ppo_epochs=ppo_epochs, mini_batch_size=mini_batch_size,
-        action_mode="continuous",
     )
     if resume_from and os.path.isfile(resume_from):
         import torch as _torch
@@ -786,12 +812,15 @@ def train_mappo_parallel(
             "num_agents": n_agents, "num_workers": num_workers,
             "obs_dim": OBS_DIM, "act_dim": act_dim,
             "action_mode": "continuous",
+            "curriculum": curriculum,
+            "worker_device": worker_device,
         },
         "episodes": [],
     }
 
     best_reward = -float("inf")
     best_wait = float("inf")
+    best_throughput = -float("inf")
     ep_count = 0
 
     # Resolve absolute paths for workers
@@ -855,6 +884,7 @@ def train_mappo_parallel(
             worker_args.append((
                 abs_net, active_route, abs_cfg, delta_time, sim_length,
                 ep_seed, OBS_DIM, w, state_dict, hidden, act_dim,
+                worker_device,
                 is_full_traffic,
             ))
 
@@ -874,12 +904,46 @@ def train_mappo_parallel(
                     t["obs"], t["global_obs"],
                     t["action"], t["log_prob"], t["reward"],
                     t["value"], t["done"], t["mask"],
+                    neighbor_feat=t.get("neighbor_feat"),
+                    neighbor_mask=t.get("neighbor_mask"),
                 )
             batch_rewards.append(result["mean_reward"])
             batch_metrics.append(result["metrics"])
 
+        batch_mean_wait = float(np.mean([
+            m.get("avg_wait_time", 0.0) for m in batch_metrics
+        ]))
+        batch_mean_throughput = float(np.mean([
+            m.get("throughput", 0.0) for m in batch_metrics
+        ]))
+
+        # Save the policy that actually generated this rollout batch.
+        # The older flow saved post-update weights using pre-update rollout
+        # metrics, which could label the wrong checkpoint as "best".
+        if (
+            batch_mean_wait < best_wait
+            or (
+                np.isclose(batch_mean_wait, best_wait)
+                and batch_mean_throughput > best_throughput
+            )
+        ):
+            best_wait = batch_mean_wait
+            best_throughput = batch_mean_throughput
+            _save_mappo_snapshot(
+                os.path.join(save_dir, "best_model.pt"),
+                state_dict,
+                OBS_DIM,
+                act_dim,
+            )
+            _status(
+                "  >> New best rollout policy: "
+                f"mean wait={batch_mean_wait:.1f}s "
+                f"tp={batch_mean_throughput:.1f} "
+                f"(eps {ep_count + 1}-{ep_count + batch_size})"
+            )
+
         # PPO update on combined data
-        loss_stats = agent.update()
+        loss_stats = agent.update(n_agents=n_agents)
 
         elapsed = time.time() - t0
 
@@ -901,6 +965,8 @@ def train_mappo_parallel(
                 "avg_wait": metrics.get("avg_wait_time", 0),
                 "avg_queue": metrics.get("avg_queue_length", 0),
                 "vehicles": metrics.get("total_vehicles", 0),
+                "vehicles_end": metrics.get("total_vehicles", 0),
+                "throughput": metrics.get("throughput", 0),
                 "collisions": 0,
                 "best_reward": round(max(best_reward, mean_r), 4),
                 "algorithm": "mappo_parallel",
@@ -909,16 +975,6 @@ def train_mappo_parallel(
 
             if mean_r > best_reward:
                 best_reward = mean_r
-
-            # Save best model by wait-per-vehicle (normalizes for variable traffic seeds)
-            ep_wait = metrics.get("avg_wait_time", 9999)
-            ep_vehicles = metrics.get("total_vehicles", 0)
-            # Normalize by vehicle count to avoid saving lucky low-traffic episodes
-            wait_per_veh = ep_wait / max(ep_vehicles, 1)
-            if ep_vehicles >= 200 and wait_per_veh < best_wait:
-                best_wait = wait_per_veh
-                agent.save(os.path.join(save_dir, "best_model.pt"))
-                _status(f"  >> New best model: wait={ep_wait:.1f}s v={ep_vehicles} (wait/v={wait_per_veh:.3f}, ep {ep_count})")
 
             if on_episode:
                 on_episode(ep_log)
@@ -1053,7 +1109,7 @@ def train_dyna_with_callbacks(
             if collect:
                 trans_buf.add_batch(obs, actions, next_obs, rewards, terminated)
 
-            loss = agent.update()
+            loss = agent.update(n_agents=n_agents)
             if loss is not None:
                 ep_losses.append(loss)
             obs = next_obs
@@ -1368,7 +1424,7 @@ def train_masac(
                 ep_rewards[tid] += rewards[tid]
 
             # Update after every step (off-policy)
-            agent.update()
+            agent.update(n_agents=n_agents)
 
             obs = next_obs
             step_count += 1
@@ -1460,10 +1516,14 @@ def main() -> None:
                     help="RL algorithm: dqn, mappo, or masac (default: dqn)")
     ap.add_argument("--workers", type=int, default=1,
                     help="Parallel SUMO workers for MAPPO (default: 1, use 2-8 for speed)")
-    ap.add_argument("--entropy-coef", type=float, default=0.03,
-                    help="PPO entropy coefficient (default: 0.03, lower=less random)")
+    ap.add_argument("--worker-device", choices=["cpu", "cuda"], default="cpu",
+                    help="Device used by parallel rollout workers (default: cpu for stability)")
+    ap.add_argument("--entropy-coef", type=float, default=0.0,
+                    help="PPO entropy coefficient (default: 0.0 for continuous actions)")
     ap.add_argument("--resume-from", default=None,
                     help="Path to checkpoint to resume training from")
+    ap.add_argument("--curriculum", action="store_true",
+                    help="Enable staged traffic curriculum for MAPPO parallel training")
 
     args = ap.parse_args()
 
@@ -1475,13 +1535,29 @@ def main() -> None:
             agent = MAPPOAgent(OBS_DIM, ACT_DIM, args.hidden)
             agent.load(args.eval_only)
             results = evaluate_mappo(
-                agent, args.net, args.route, args.cfg, gui=args.gui, seed=args.seed
+                agent,
+                args.net,
+                args.route,
+                args.cfg,
+                episodes=args.episodes,
+                delta_time=args.delta_time,
+                sim_length=args.sim_length,
+                gui=args.gui,
+                seed=args.seed,
             )
         else:
             agent = TrafficDQNAgent(OBS_DIM, ACT_DIM, args.hidden)
             agent.load(args.eval_only)
             results = evaluate(
-                agent, args.net, args.route, args.cfg, gui=args.gui, seed=args.seed
+                agent,
+                args.net,
+                args.route,
+                args.cfg,
+                episodes=args.episodes,
+                delta_time=args.delta_time,
+                sim_length=args.sim_length,
+                gui=args.gui,
+                seed=args.seed,
             )
         print(f"\n  Results: {json.dumps(results, indent=2)}")
     elif args.algorithm == "mappo":
@@ -1501,6 +1577,8 @@ def main() -> None:
                 save_every=args.save_every,
                 seed=args.seed,
                 num_workers=args.workers,
+                worker_device=args.worker_device,
+                curriculum=args.curriculum,
                 resume_from=args.resume_from,
             )
         else:
