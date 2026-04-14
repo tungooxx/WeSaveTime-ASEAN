@@ -55,11 +55,11 @@ def run_baseline(net_file, route_file, sumo_cfg, sim_length=3600,
         terminated = truncated = False
 
         while not (terminated or truncated):
-            # Baseline: use middle duration level for all TLS (neutral default timing)
-            actions = {}
-            for tid in env.tls_ids:
-                levels = env._duration_levels.get(tid, [0])
-                actions[tid] = len(levels) // 2
+            # Baseline: neutral mid-range continuous action (0.5 = midpoint of min-max green)
+            actions = {
+                tid: np.full(env.act_dim, 0.5, dtype=np.float32)
+                for tid in env.tls_ids
+            }
             obs, rewards, terminated, truncated, _ = env.step(actions)
 
         elapsed = time.time() - t0
@@ -83,6 +83,7 @@ def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
     import torch
     ckpt = torch.load(model_path, map_location="cpu", weights_only=True)
     ckpt_obs_dim = ckpt.get("obs_dim", OBS_DIM)
+    ckpt_act_dim = ckpt.get("act_dim", ACT_DIM)
     algorithm = ckpt.get("algorithm", "dqn")
 
     # Auto-detect hidden size from checkpoint weights
@@ -90,9 +91,9 @@ def run_model(model_path, net_file, route_file, sumo_cfg, hidden=256,
         hidden = ckpt["model"]["actor.0.weight"].shape[0]
 
     if algorithm == "mappo":
-        agent = MAPPOAgent(ckpt_obs_dim, ACT_DIM, hidden)
+        agent = MAPPOAgent(ckpt_obs_dim, ckpt_act_dim, hidden)
     else:
-        agent = TrafficDQNAgent(ckpt_obs_dim, ACT_DIM, hidden)
+        agent = TrafficDQNAgent(ckpt_obs_dim, ckpt_act_dim, hidden)
     agent.load(model_path)
 
     env = SumoTrafficEnv(

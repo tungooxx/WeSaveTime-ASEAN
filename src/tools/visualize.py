@@ -43,7 +43,7 @@ import traci
 import traci.constants as tc
 
 from src.ai.traffic_env import (
-    SumoTrafficEnv, OBS_DIM, OLD_OBS_DIM, ACT_DIM, ACT_OFF,
+    SumoTrafficEnv, OBS_DIM, ACT_DIM,
     remap_obs_for_old_model,
 )
 from src.ai.dqn_agent import TrafficDQNAgent
@@ -113,7 +113,7 @@ class Visualizer:
 
     def __init__(self, model_path: str, net_file: str, route_file: str,
                  sumo_cfg: str, hidden: int = 256, delta_time: int = 30,
-                 sim_length: int = 3600, seed: int = 1000, speed: float = 0.05):
+                 sim_length: int = 1800, seed: int = 1000, speed: float = 0.05):
         self.model_path = model_path
         self.net_file = net_file
         self.route_file = route_file
@@ -422,6 +422,7 @@ class Visualizer:
             ckpt = torch.load(self.model_path, map_location="cpu",
                               weights_only=True)
             ckpt_obs_dim = ckpt.get("obs_dim", OBS_DIM)
+            ckpt_act_dim = ckpt.get("act_dim", ACT_DIM)
             self._model_obs_dim = ckpt_obs_dim
             algorithm = ckpt.get("algorithm", "dqn")
             self._algorithm = algorithm
@@ -431,10 +432,10 @@ class Visualizer:
                 self.hidden = ckpt["model"]["actor.0.weight"].shape[0]
 
             if algorithm == "mappo":
-                agent = MAPPOAgent(ckpt_obs_dim, ACT_DIM, self.hidden)
+                agent = MAPPOAgent(ckpt_obs_dim, ckpt_act_dim, self.hidden)
                 agent.load(self.model_path)
             else:
-                agent = TrafficDQNAgent(ckpt_obs_dim, ACT_DIM, self.hidden)
+                agent = TrafficDQNAgent(ckpt_obs_dim, ckpt_act_dim, self.hidden)
                 agent.load(self.model_path)
 
             self._set_status("Starting SUMO-gui...")
@@ -505,24 +506,26 @@ class Visualizer:
             # Setup congestion monitoring subscriptions on same connection
             self._setup_congestion_subscriptions(conn, env._net)
 
-            # Check if model needs obs remapping (old 26-dim vs new 39-dim)
-            needs_remap = (ckpt_obs_dim == OLD_OBS_DIM and OBS_DIM != OLD_OBS_DIM)
+            # Remap obs if model was trained on a smaller obs space
+            needs_remap = ckpt_obs_dim < OBS_DIM
 
             while not (terminated or truncated) and not self._stop:
                 actions = {}
                 if self._algorithm == "mappo":
-                    global_obs = np.mean(
+                    raw_global = np.mean(
                         [obs[tid] for tid in env.tls_ids], axis=0
                     ).astype(np.float32)
+                    global_obs = remap_obs_for_old_model(raw_global, target_dim=ckpt_obs_dim) if needs_remap else raw_global
                 for tid in env.tls_ids:
                     valid = env.get_valid_actions(tid)
-                    o = remap_obs_for_old_model(obs[tid]) if needs_remap else obs[tid]
+                    o = remap_obs_for_old_model(obs[tid], target_dim=ckpt_obs_dim) if needs_remap else obs[tid]
                     if self._algorithm == "mappo":
                         a, _, _ = agent.select_action(o, global_obs, valid, greedy=True)
                     else:
                         a = agent.select_action(o, valid, greedy=True)
                     actions[tid] = a
-                    action_counts[tid][a] += 1
+                    a_key = tuple(a) if hasattr(a, '__len__') else a
+                    action_counts[tid][a_key] += 1
 
                 # Step environment
                 obs, rewards, terminated, truncated, info = env.step(actions)
@@ -746,7 +749,7 @@ class BaselineVisualizer:
     """Run SUMO-gui with default timing (no AI) through the same env."""
 
     def __init__(self, net_file, route_file, sumo_cfg,
-                 delta_time=30, sim_length=3600, seed=1000, speed=0.05):
+                 delta_time=30, sim_length=1800, seed=1000, speed=0.05):
         self.net_file = net_file
         self.route_file = route_file
         self.sumo_cfg = sumo_cfg
@@ -824,17 +827,9 @@ class BaselineVisualizer:
             terminated = truncated = False
 
             while not (terminated or truncated) and not self._stop:
-                # "Do nothing" — keep current phase
-                actions = {}
-                for tid in env.tls_ids:
-                    green_phases = env._green_phases.get(tid, [0])
-                    current = env._current_phases.get(tid, green_phases[0])
-                    action = 0
-                    for ai, gp in enumerate(green_phases):
-                        if gp == current:
-                            action = ai
-                            break
-                    actions[tid] = action
+                # Baseline: neutral mid-range continuous action (0.5 = midpoint of min-max green)
+                actions = {tid: np.full(env.act_dim, 0.5, dtype=np.float32)
+                           for tid in env.tls_ids}
 
                 _, _, terminated, truncated, _ = env.step(actions)
                 metrics = env.get_metrics()
@@ -896,7 +891,7 @@ def main():
         _PROJECT_ROOT, "sumo", "danang", "danang.sumocfg"))
     ap.add_argument("--hidden", type=int, default=256)
     ap.add_argument("--delta-time", type=int, default=30)
-    ap.add_argument("--sim-length", type=int, default=3600)
+    ap.add_argument("--sim-length", type=int, default=1800)
     ap.add_argument("--seed", type=int, default=1000)
     ap.add_argument("--speed", type=float, default=0.05,
                     help="Delay between steps in seconds (0=max speed)")

@@ -87,8 +87,8 @@ class ActorCritic(nn.Module):
                 nn.ReLU(),
             )
             self.actor_mean = nn.Linear(hidden, 1)
-            # Init log_std=-1 → std≈0.37, tighter than 1.0 for faster convergence
-            self.actor_log_std = nn.Parameter(torch.full((1,), -1.0))
+            # Init log_std=0.0 → std=1.0, balanced exploration without instability
+            self.actor_log_std = nn.Parameter(torch.full((1,), 0.0))
         else:
             # Discrete actor: obs -> action logits
             self.actor = nn.Sequential(
@@ -352,8 +352,10 @@ class MAPPOAgent:
             for batch in self.buffer.get_batches(
                     self.mini_batch_size, advantages, returns,
                     continuous=is_cont):
-                obs_t = torch.FloatTensor(batch["obs"]).to(self.device)
-                global_t = torch.FloatTensor(batch["global_obs"]).to(self.device)
+                obs_t = torch.nan_to_num(
+                    torch.FloatTensor(batch["obs"]).to(self.device))
+                global_t = torch.nan_to_num(
+                    torch.FloatTensor(batch["global_obs"]).to(self.device))
                 if is_cont:
                     actions_t = torch.FloatTensor(batch["actions"]).to(self.device)
                 else:
@@ -384,10 +386,15 @@ class MAPPOAgent:
                 # Total loss
                 loss = actor_loss + self.value_coef * critic_loss - self.entropy_coef * entropy
 
+                if not torch.isfinite(loss):
+                    continue  # skip NaN/inf batch
                 self.optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.network.parameters(), self.max_grad_norm)
-                self.optimizer.step()
+                # Skip step if any gradient is NaN/inf
+                if all(p.grad is None or torch.isfinite(p.grad).all()
+                       for p in self.network.parameters()):
+                    self.optimizer.step()
 
                 total_actor_loss += actor_loss.item()
                 total_critic_loss += critic_loss.item()
