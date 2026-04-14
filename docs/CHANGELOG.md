@@ -295,6 +295,41 @@ Level 1 focuses exclusively on optimizing traffic signal timing for all 83 TLS i
 
 ---
 
+### Phase 9: Level 2 Neighbor-GAT Refinement
+
+**Goal:** Give Level 2 richer local-network context and make parallel MAPPO checkpoint selection match actual rollout quality.
+
+- **Neighbor feature vector expanded from 2D to 5D**
+  - Previously, each neighbor only exposed queue and wait
+  - Now each neighbor slot carries:
+    - queue ratio
+    - wait ratio
+    - density ratio
+    - current phase ratio
+    - elapsed green ratio
+  - This allows Level 2 to reason about both traffic state and signal state in nearby intersections
+
+- **GAT updated to consume richer neighbor context**
+  - The actor/critic now build an ego summary in the same feature space as the neighbors
+  - Attention can rank neighbors using congestion and signal-cycle progress, not just queue/wait
+  - Older checkpoints still load because neighbor feature dimensionality is auto-detected at load time
+
+- **Parallel MAPPO best-checkpoint saving fixed**
+  - Previously, parallel training could save post-update weights using pre-update rollout metrics
+  - Now `best_model.pt` is saved from the rollout policy snapshot that actually produced the winning batch
+  - Selection uses lowest batch mean wait, with throughput as a tie-breaker
+
+- **Training/evaluation defaults aligned with the stable Level 2 setup**
+  - Added `--worker-device` and `--curriculum` to the training CLI
+  - Stable recommendation for Da Nang: `workers=2`, CPU rollout workers, `sim_length=1800`, `delta_time=30`
+  - Compare/eval defaults now match the same `sim_length=1800`, `delta_time=30` setup
+
+- **Retraining required for the richer 5D GAT features**
+  - Older checkpoints remain compatible
+  - A new Level 2 retrain is required for the model to benefit from the added neighbor signals
+
+---
+
 ### Results
 
 Final performance comparison after all Level 1 optimizations, averaged over 3 evaluation episodes at sim_length=3600:
@@ -312,9 +347,9 @@ Final performance comparison after all Level 1 optimizations, averaged over 3 ev
 
 ---
 
-## Future: Level 2 (Planned)
+## Future Work
 
-Level 2 will extend the system with dynamic traffic event handling and multi-city generalization:
+Potential next steps beyond the current Level 2 system:
 
 - **Random traffic events** (accidents, road closures, VIP convoys, weather) via `EventManager`
 - **Adaptive event response** --- agent learns to reroute traffic around disruptions  

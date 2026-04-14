@@ -35,6 +35,11 @@ MAX_INCOMING_EDGES = 12     # pad/truncate incoming edges to this size
 MAX_GREEN_PHASES = 7        # phases 0-6
 ACT_OFF = -1                 # OFF action DISABLED
 MIN_GREEN_STEPS = 60         # fallback minimum green (30s real @ step_length=0.5)
+MAX_NEIGHBORS = 6
+# Neighbor feature layout:
+#   [0] queue ratio, [1] wait ratio, [2] density ratio,
+#   [3] current phase ratio, [4] elapsed green ratio
+NEIGHBOR_FEAT_DIM = 5
 
 # Observation layout per TLS (fixed size for parameter sharing):
 #   [0..11]   queue per edge          (12)
@@ -45,9 +50,8 @@ MIN_GREEN_STEPS = 60         # fallback minimum green (30s real @ step_length=0.
 #   [38]      min_green satisfied     (1)
 OBS_DIM = MAX_INCOMING_EDGES * 3 + 3   # 39 (Level 1: no pressure, no events)
 OLD_OBS_DIM = MAX_INCOMING_EDGES * 2 + 2  # 26 (v1 layout)
-# Duration-only action space (phases auto-cycle):
-# continuous mode: ACT_DIM = 1 (single float 0.0-1.0)
-ACT_DIM = 1
+# Per-phase green-split action space (one duration per phase slot):
+ACT_DIM = 1  # single continuous duration (Level 2 adds GAT obs, keeps act_dim=1)
 
 
 V2_OBS_DIM = MAX_INCOMING_EDGES * 3 + 3  # 39 (same as OBS_DIM now)
@@ -178,14 +182,14 @@ class SumoTrafficEnv(gym.Env):
             gp = tls.num_green_phases
             ie = max(len(tls.incoming_edges), 1)
             if gp >= 2:
-                w = gp * ie
+                w = (gp * ie) ** 0.5  # sqrt to reduce variance (was 10x, now ~3x)
             else:
                 total_lanes = sum(
                     self._net.getEdge(eid).getLaneNumber()
                     for eid in tls.incoming_edges
                     if not eid.startswith(":")
                 ) if tls.incoming_edges else 1
-                w = total_lanes * 0.3
+                w = (total_lanes * 0.5) ** 0.5
             raw_weights[tls.id] = float(w)
         mean_w = sum(raw_weights.values()) / max(len(raw_weights), 1)
         self._reward_weight: dict[str, float] = {
@@ -212,8 +216,8 @@ class SumoTrafficEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=0.0, high=1.0, shape=(OBS_DIM,), dtype=np.float32
         )
-        self.act_dim = 1
-        self.action_space = gym.spaces.Box(low=0.0, high=1.0, shape=(1,))
+        self.act_dim = ACT_DIM
+        self.action_space = gym.spaces.Box(low=0.0, high=1.0, shape=(ACT_DIM,))
 
         # [Level 2 REMOVED] ── Random event config ──────────────────
         # self.random_events = random_events
@@ -228,6 +232,39 @@ class SumoTrafficEnv(gym.Env):
         #     e.getID() for e in self._net.getEdges()
         #     if not e.getID().startswith(":") and e.getLaneNumber() >= 2
         # ]
+
+        # ── Neighbor topology (upstream awareness) ───────────────────
+        # For each TLS, find neighboring TLS reachable via incoming edges
+        self._neighbor_info: dict[str, list[tuple[str, str]]] = {}
+        for tls in self._tls_list:
+            neighbors: list[tuple[str, str]] = []
+            seen: set[str] = set()
+            for eid in tls.incoming_edges:
+                if eid.startswith(":"):
+                    continue
+                try:
+                    edge_obj = self._net.getEdge(eid)
+                    from_node = edge_obj.getFromNode()
+                    for in_edge in from_node.getIncoming():
+                        in_id = in_edge.getID()
+                        if in_id.startswith(":"):
+                            continue
+                        # Find if this edge belongs to another TLS
+                        for other in self._tls_list:
+                            if other.id == tls.id:
+                                continue
+                            if in_id in other.incoming_edges and other.id not in seen:
+                                seen.add(other.id)
+                                neighbors.append((other.id, in_id))
+                                if len(neighbors) >= MAX_NEIGHBORS:
+                                    break
+                        if len(neighbors) >= MAX_NEIGHBORS:
+                            break
+                except Exception:
+                    pass
+                if len(neighbors) >= MAX_NEIGHBORS:
+                    break
+            self._neighbor_info[tls.id] = neighbors[:MAX_NEIGHBORS]
 
         # ── Runtime state ────────────────────────────────────────────
         self._conn: Optional[traci.Connection] = None
@@ -244,6 +281,10 @@ class SumoTrafficEnv(gym.Env):
         self._countdown: dict[str, int] = {}  # Vietnamese countdown timer (sim steps remaining)
         self._committed_green: dict[str, int] = {}  # initial countdown when phase changed (for logging)
         self._cycle_index: dict[str, int] = {}  # index into green_phases for auto-cycling
+        self._last_neighbor_feats: dict = {}
+        self._last_neighbor_masks: dict = {}
+        self._wait_integral: float = 0.0
+        self._metric_step_count: int = 0
 
     # ── Properties ────────────────────────────────────────────────────
 
@@ -255,14 +296,19 @@ class SumoTrafficEnv(gym.Env):
         """Returns [0] — continuous mode has a single action dimension."""
         return [0]
 
-    def decode_duration_steps(self, tls_id: str, action) -> int:
-        """Convert continuous action (float 0.0-1.0) to duration in sim steps.
+    def decode_duration_steps(self, tls_id: str, action, phase_ci: int = 0) -> int:
+        """Convert per-phase continuous action to duration in sim steps.
 
-        Maps the action value to the per-TLS [min_green, max_green] range.
+        Selects the action slot corresponding to the current phase index,
+        then maps [0,1] to the per-TLS [min_green, max_green] range.
         """
-        t = float(action[0]) if hasattr(action, '__len__') else float(action)
+        n_phases = len(self._green_phases.get(tls_id, [0]))
+        idx = phase_ci % max(n_phases, 1)
+        if hasattr(action, '__len__'):
+            t = float(action[idx % len(action)])
+        else:
+            t = float(action)
         t = max(0.0, min(1.0, t))
-        # Use per-TLS bounds so ped crossings don't inflate the range
         per_mn = self._min_green_steps.get(tls_id, self._flex_min_steps)
         per_mx = self._max_green_steps.get(tls_id, self._flex_max_steps)
         return int(per_mn + t * (per_mx - per_mn))
@@ -381,6 +427,10 @@ class SumoTrafficEnv(gym.Env):
         self._countdown.clear()
         self._committed_green.clear()
         self._cycle_index.clear()
+        self._wait_integral = 0.0
+        self._metric_step_count = 0
+        self._last_neighbor_feats = {}
+        self._last_neighbor_masks = {}
 
         # Initialise per-TLS tracking and validate green phases at runtime
         for tls_id in self.tls_ids:
@@ -430,7 +480,9 @@ class SumoTrafficEnv(gym.Env):
             except traci.TraCIException:
                 pass
 
-        obs = self._get_observations()
+        obs, nf, nm = self._get_observations()
+        self._last_neighbor_feats = nf
+        self._last_neighbor_masks = nm
         return obs, {"step": self._sim_step, "sim_time": self._sim_step}
 
     def step(
@@ -468,7 +520,7 @@ class SumoTrafficEnv(gym.Env):
             self._cycle_index[tls_id] = next_ci
 
             # Decode AI action -> duration in sim steps
-            chosen_duration[tls_id] = self.decode_duration_steps(tls_id, action_idx)
+            chosen_duration[tls_id] = self.decode_duration_steps(tls_id, action_idx, phase_ci=next_ci)
 
             # Set target phase state
             tls_info = self._tls_map.get(tls_id)
@@ -566,8 +618,16 @@ class SumoTrafficEnv(gym.Env):
                 self._countdown[tid] = max(0, self._countdown[tid] - self.delta_time)
 
         # ── 6. Observe & reward ───────────────────────────────────────
-        obs = self._get_observations()
+        obs, nf, nm = self._get_observations()
+        self._last_neighbor_feats = nf
+        self._last_neighbor_masks = nm
         rewards = self._compute_rewards(changed_tls_set=set(changed_tls))
+
+        # Zero reward for locked TLS — their action was ignored this step,
+        # so attributing reward to it corrupts PPO credit assignment.
+        for tid in self.tls_ids:
+            if tid not in targets:  # was locked (countdown > 0), action skipped
+                rewards[tid] = 0.0
 
         terminated = self._sim_step >= self.sim_length
         truncated = False
@@ -656,8 +716,66 @@ class SumoTrafficEnv(gym.Env):
 
     # ── Observations ──────────────────────────────────────────────────
 
-    def _get_observations(self) -> dict[str, np.ndarray]:
-        return {tls_id: self._obs_for(tls_id) for tls_id in self.tls_ids}
+    def _get_neighbor_obs(self):
+        """Return (neighbor_feats dict, neighbor_masks dict) for all TLS.
+
+        Each value is a (MAX_NEIGHBORS, NEIGHBOR_FEAT_DIM) float array or
+        (MAX_NEIGHBORS,) bool mask.
+        """
+        neighbor_feats = {}
+        neighbor_masks = {}
+        for tls_id in self.tls_ids:
+            feats = np.zeros((MAX_NEIGHBORS, NEIGHBOR_FEAT_DIM), dtype=np.float32)
+            mask = np.zeros(MAX_NEIGHBORS, dtype=np.bool_)
+            for i, (other_tls_id, edge_id) in enumerate(self._neighbor_info.get(tls_id, [])):
+                if i >= MAX_NEIGHBORS:
+                    break
+                q = 0.0
+                w = 0.0
+                density = 0.0
+                phase_ratio = 0.0
+                elapsed_ratio = 0.0
+                try:
+                    capacity = self._edge_capacity.get(edge_id, 10.0)
+                    q = self._conn.edge.getLastStepHaltingNumber(edge_id) / 50.0
+                    w = self._conn.edge.getWaitingTime(edge_id) / 300.0
+                    veh = self._conn.edge.getLastStepVehicleNumber(edge_id)
+                    density = veh / max(capacity, 1.0)
+                except traci.TraCIException:
+                    pass
+                except Exception:
+                    pass
+
+                other_tls = self._tls_map.get(other_tls_id)
+                if other_tls is not None:
+                    num_phases = max(other_tls.num_phases, 1)
+                    phase_ratio = (
+                        self._current_phases.get(other_tls_id, 0) / num_phases
+                    )
+                    green_start = self._green_start_step.get(
+                        other_tls_id, self._phase_start_step.get(other_tls_id, 0)
+                    )
+                    actual_green_elapsed = self._sim_step - green_start
+                    max_g = self._max_green_steps.get(other_tls_id, 120)
+                    elapsed_ratio = actual_green_elapsed / max(max_g, 1)
+
+                feats[i, 0] = min(q, 1.0)
+                feats[i, 1] = min(w, 1.0)
+                feats[i, 2] = min(density, 1.0)
+                feats[i, 3] = min(max(phase_ratio, 0.0), 1.0)
+                feats[i, 4] = min(max(elapsed_ratio, 0.0), 1.0)
+                mask[i] = True
+            neighbor_feats[tls_id] = feats
+            neighbor_masks[tls_id] = mask
+        return neighbor_feats, neighbor_masks
+
+    def get_neighbor_obs(self):
+        """Return cached neighbor observations from last step."""
+        return self._last_neighbor_feats, self._last_neighbor_masks
+
+    def _get_observations(self):
+        nf, nm = self._get_neighbor_obs()
+        return {tls_id: self._obs_for(tls_id) for tls_id in self.tls_ids}, nf, nm
 
     def _obs_for(self, tls_id: str) -> np.ndarray:
         """Build a fixed-size (OBS_DIM,) observation vector for one TLS.
@@ -716,14 +834,16 @@ class SumoTrafficEnv(gym.Env):
         # [Level 2 REMOVED] Number of active events (normalized)
         # vec[MAX_INCOMING_EDGES * 4 + 3] = min(n_events / 5.0, 1.0)
 
-        return vec
+        return np.nan_to_num(vec, nan=0.0, posinf=1.0, neginf=0.0)
 
     # ── Rewards ───────────────────────────────────────────────────────
 
     def _compute_rewards(self, changed_tls_set: set[str] | None = None) -> dict[str, float]:
         rewards: dict[str, float] = {}
 
-        # [Level 1] Pure timing optimization
+        # Accumulate time-averaged wait integral
+        step_total_wait = 0.0
+        step_edge_count = 0
 
         # ── Per-TLS reward ──────────────────────────────────────────────
         for tls_id in self.tls_ids:
@@ -746,6 +866,8 @@ class SumoTrafficEnv(gym.Env):
                 queues.append(float(q))
                 total_wait += w
                 incoming_veh += t
+                step_total_wait += w
+                step_edge_count += 1
 
             # Pressure: vehicles on outgoing - incoming
             outgoing_veh = 0
@@ -783,6 +905,11 @@ class SumoTrafficEnv(gym.Env):
 
             self._prev_waiting[tls_id] = total_wait
             self._prev_throughput[tls_id] = incoming_veh
+
+        # Update time-averaged wait integral
+        current_avg_wait = step_total_wait / max(step_edge_count, 1)
+        self._wait_integral += current_avg_wait
+        self._metric_step_count += 1
 
         return rewards
 

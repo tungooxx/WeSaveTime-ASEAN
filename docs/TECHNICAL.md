@@ -452,12 +452,48 @@ ACTOR (local obs -> TanhNormal distribution):
     → TanhNormal(mean, exp(log_std))  # samples in [0, 1]
 
 CRITIC (local obs + global obs -> value):
-    Linear(78, 256) -> ReLU       # 39 local + 39 global = 78
+    Linear(78, 256) -> ReLU       # fallback path without GAT
     Linear(256, 256) -> ReLU
     Linear(256, 1)   -> state value
 ```
 
 **Global observation:** Mean of all agent observations (aggregated view of network-wide traffic state).
+
+### Neighbor-Aware GAT
+
+Level 2 extends MAPPO with a lightweight graph-attention block over a small
+precomputed set of neighboring TLS. With the default `gat_out=16`, the actor
+and critic become:
+
+```text
+ACTOR (local obs + GAT embedding -> TanhNormal distribution):
+    Linear(55, 256) -> ReLU       # 39 local + 16 GAT = 55
+    Linear(256, 256) -> ReLU
+    Linear(256, 1)   -> mean
+
+CRITIC (local obs + GAT embedding + global obs -> value):
+    Linear(94, 256) -> ReLU       # 39 local + 16 GAT + 39 global = 94
+    Linear(256, 256) -> ReLU
+    Linear(256, 1)   -> state value
+```
+
+Each neighbor slot now carries a 5D feature vector:
+
+```text
+[queue_ratio, wait_ratio, density_ratio, current_phase_ratio, elapsed_green_ratio]
+```
+
+- `queue_ratio`: halted vehicles on the neighbor edge, normalized by 50
+- `wait_ratio`: waiting time on the neighbor edge, normalized by 300 seconds
+- `density_ratio`: vehicles on edge / estimated edge capacity
+- `current_phase_ratio`: neighbor TLS current phase index / number of phases
+- `elapsed_green_ratio`: elapsed green time / max green time for that TLS
+
+The model also builds an ego summary in the same 5D space from the local TLS
+observation before computing attention. This lets GAT rank neighbors using both
+traffic state and signal-state context. Older checkpoints remain loadable; the
+loader auto-detects whether a checkpoint was trained with the earlier 2D
+neighbor features (`queue`, `wait`) or the newer 5D representation.
 
 **TanhNormal log_prob** must include the Jacobian correction for the change-of-variables through tanh. Without it, PPO ratios are wrong and entropy gets stuck at 1.7 (near-uniform):
 
@@ -528,24 +564,33 @@ A Tkinter-based GUI provides training management:
 The training loop supports DQN, MAPPO (sequential and parallel), and MASAC:
 
 ```bash
-# Recommended: parallel MAPPO, continuous, 4 workers
+# Recommended stable Level 2 training
 python -m src.ai.train \
   --algorithm mappo \
-  --action-mode continuous \
-  --workers 4 \
-  --episodes 1000 \
+  --workers 2 \
+  --worker-device cpu \
+  --curriculum \
+  --episodes 2000 \
   --delta-time 30 \
   --sim-length 1800 \
   --lr 0.0003 \
-  --entropy-coef 0.01 \
+  --entropy-coef 0.0 \
   --net sumo/danang/danang.net.xml \
   --route sumo/danang/danang.rou.xml \
   --cfg sumo/danang/danang.sumocfg
 ```
 
-**Parallel workers:** `--workers N` spawns N SUMO instances simultaneously, each collecting one episode. Combined transitions feed one PPO update. Recommended: 4 workers (8 workers causes CUDA OOM with a GPU).
+**Parallel workers:** `--workers N` spawns N SUMO instances simultaneously, each collecting one episode. Combined transitions feed one PPO update. For the Da Nang network, `--workers 2 --worker-device cpu` has been the most reliable Level 2 setting; 4 workers can exhaust SUMO memory on the full asset set.
 
-**Best model saving:** Saved by `wait_time / vehicle_count` (normalized), only when `vehicles >= 200`. This prevents saving lucky low-traffic episodes where any policy achieves near-zero wait.
+**`--worker-device`:** Keeps rollout actors on CPU or GPU explicitly. CPU workers avoid multiple SUMO actors competing for the same GPU.
+
+**`--curriculum`:** Enables the staged traffic schedule in parallel MAPPO:
+
+- Phase 1: 33% traffic
+- Phase 2: 66% traffic
+- Phase 3: 100% traffic
+
+**Best model saving:** In parallel MAPPO, `best_model.pt` is now saved from the rollout policy snapshot that actually generated the best batch metrics. Selection is based on lowest batch mean wait, with throughput as a tie-breaker.
 
 **`--resume-from`:** Loads actor weights only from a checkpoint. Critic starts fresh to avoid value miscalibration when the reward function has changed since the checkpoint was saved.
 
@@ -558,9 +603,11 @@ python -m src.ai.train \
 | `delta_time` | 30 | Sim ticks per decision (15 real seconds) |
 | `sim_length` | 1800 | Sim ticks per training episode (900 real seconds) |
 | `hidden` | 256 | MLP hidden layer size |
-| `workers` | 4 | Parallel SUMO instances |
-| `entropy_coef` | 0.01 | Lower = less entropy drift over long training runs |
-| `episodes` | 1000 | Training episodes |
+| `workers` | 2 | Stable number of parallel SUMO instances for Da Nang |
+| `worker_device` | `cpu` | Keeps rollout actors off the GPU |
+| `curriculum` | enabled | 33% → 66% → 100% traffic schedule |
+| `entropy_coef` | 0.0 | Lower = less exploration drift over long training runs |
+| `episodes` | 2000 | Recommended Level 2 training run length |
 
 ### Training Log Header
 
