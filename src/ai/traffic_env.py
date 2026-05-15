@@ -32,9 +32,6 @@ from .reward import compute_tls_reward
 
 # ── Constants ─────────────────────────────────────────────────────────
 MAX_INCOMING_EDGES = 12     # pad/truncate incoming edges to this size
-MAX_GREEN_PHASES = 7        # phases 0-6
-ACT_OFF = -1                 # OFF action DISABLED
-MIN_GREEN_STEPS = 60         # fallback minimum green (30s real @ step_length=0.5)
 MAX_NEIGHBORS = 6
 # Neighbor feature layout:
 #   [0] queue ratio, [1] wait ratio, [2] density ratio,
@@ -51,10 +48,7 @@ NEIGHBOR_FEAT_DIM = 5
 OBS_DIM = MAX_INCOMING_EDGES * 3 + 3   # 39 (Level 1: no pressure, no events)
 OLD_OBS_DIM = MAX_INCOMING_EDGES * 2 + 2  # 26 (v1 layout)
 # Per-phase green-split action space (one duration per phase slot):
-ACT_DIM = 1  # single continuous duration (Level 2 adds GAT obs, keeps act_dim=1)
-
-
-V2_OBS_DIM = MAX_INCOMING_EDGES * 3 + 3  # 39 (same as OBS_DIM now)
+ACT_DIM = 1  # single continuous duration
 
 
 def remap_obs_for_old_model(obs_new: np.ndarray, target_dim: int = OLD_OBS_DIM
@@ -72,7 +66,7 @@ def remap_obs_for_old_model(obs_new: np.ndarray, target_dim: int = OLD_OBS_DIM
         obs[24] = obs_new[MAX_INCOMING_EDGES * 3]           # phase_ratio (slot 36)
         obs[25] = obs_new[MAX_INCOMING_EDGES * 3 + 1]       # elapsed (slot 37)
         return obs
-    elif target_dim == V2_OBS_DIM:  # 39 (same as current OBS_DIM)
+    elif target_dim == OBS_DIM:  # 39 (current layout)
         return obs_new.copy()
     else:
         return obs_new[:target_dim]

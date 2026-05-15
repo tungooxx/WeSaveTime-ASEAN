@@ -35,9 +35,9 @@ FlowMind AI is a multi-agent reinforcement learning system that controls traffic
 - The system is built on the SUMO (Simulation of Urban Mobility) microsimulator, interfaced via TraCI, and wrapped in a Gymnasium-compatible environment for standard RL training.
 
 **Key results (Level 1):**
-- **-98% average wait time** (32.1s to 0.8s)
-- **-88% average queue length** (0.2 to 0.0 vehicles)
-- **Throughput maintained** (1,479 to 1,468 arrived vehicles, -1%)
+- **-66% average wait time** (41.9s to 14.4s)
+- **-60% average queue length** (0.5 to 0.2 vehicles)
+- **Throughput improved** (1,200 to 1,300+ arrived vehicles, +8%)
 
 ---
 
@@ -99,8 +99,7 @@ FlowMind AI is a multi-agent reinforcement learning system that controls traffic
 | `src/ai/traffic_env.py` | Gymnasium multi-agent environment wrapping SUMO |
 | `src/ai/reward.py` | Per-TLS reward computation (pressure-primary, 5 weighted terms) |
 | `src/ai/mappo_agent.py` | MAPPO agent with shared ActorCritic + TanhNormal continuous policy |
-| `src/ai/masac_agent.py` | MASAC agent (Multi-Agent SAC, replay buffer, auto-tuned alpha) |
-| `src/ai/train.py` | Training loop: DQN / MAPPO (sequential + parallel) / MASAC |
+| `src/ai/train.py` | Training loop: DQN / MAPPO (sequential + parallel) |
 | `src/simulation/tls_metadata.py` | Dynamic TLS discovery, geometry, and per-TLS timing |
 | `src/tools/compare.py` | Baseline vs AI comparison framework |
 | `src/tools/visualize.py` | SUMO-GUI visualization with live stats panel |
@@ -461,7 +460,7 @@ CRITIC (local obs + global obs -> value):
 
 ### Neighbor-Aware GAT
 
-Level 2 extends MAPPO with a lightweight graph-attention block over a small
+Level 1 extends MAPPO with a lightweight graph-attention block over a small
 precomputed set of neighboring TLS. With the default `gat_out=16`, the actor
 and critic become:
 
@@ -561,10 +560,10 @@ A Tkinter-based GUI provides training management:
 
 ### Training Loop (`train.py`)
 
-The training loop supports DQN, MAPPO (sequential and parallel), and MASAC:
+The training loop supports DQN and MAPPO (sequential and parallel):
 
 ```bash
-# Recommended stable Level 2 training
+# Recommended stable training
 python -m src.ai.train \
   --algorithm mappo \
   --workers 2 \
@@ -580,7 +579,7 @@ python -m src.ai.train \
   --cfg sumo/danang/danang.sumocfg
 ```
 
-**Parallel workers:** `--workers N` spawns N SUMO instances simultaneously, each collecting one episode. Combined transitions feed one PPO update. For the Da Nang network, `--workers 2 --worker-device cpu` has been the most reliable Level 2 setting; 4 workers can exhaust SUMO memory on the full asset set.
+**Parallel workers:** `--workers N` spawns N SUMO instances simultaneously, each collecting one episode. Combined transitions feed one PPO update. For the Da Nang network, `--workers 2 --worker-device cpu` has been the most reliable setting; 4 workers can exhaust SUMO memory on the full asset set.
 
 **`--worker-device`:** Keeps rollout actors on CPU or GPU explicitly. CPU workers avoid multiple SUMO actors competing for the same GPU.
 
@@ -607,25 +606,11 @@ python -m src.ai.train \
 | `worker_device` | `cpu` | Keeps rollout actors off the GPU |
 | `curriculum` | enabled | 33% → 66% → 100% traffic schedule |
 | `entropy_coef` | 0.0 | Lower = less exploration drift over long training runs |
-| `episodes` | 2000 | Recommended Level 2 training run length |
+| `episodes` | 2000 | Recommended training run length |
 
 ### Training Log Header
 
 At startup, the environment prints per-TLS timing information (tier, yellow/allred/min_green/max_green in real seconds), enabling verification of engineering formula outputs.
-
-### MASAC Alternative (`masac_agent.py`)
-
-A Multi-Agent SAC implementation is available as an alternative to MAPPO:
-
-```text
-SACActorNetwork:  obs -> TanhNormal(mean, std)
-SACCriticNetwork: (obs, global_obs, action) -> Q-value  (twin critics)
-ReplayBuffer:     500K capacity ring buffer
-log_alpha:        auto-tuned entropy temperature (target_entropy = -1.0)
-tau:              0.005 soft target updates
-```
-
-MASAC is off-policy (reuses all past experience via replay buffer) vs MAPPO's on-policy rollouts. In practice, MASAC showed higher variance on this task due to alpha collapsing early and low-traffic episodes dominating the buffer. MAPPO with continuous TanhNormal achieved better results.
 
 ---
 
@@ -660,9 +645,9 @@ The trained model runs greedily (no exploration), selecting the highest-probabil
 
 | Metric | Baseline | AI Model | Improvement |
 |--------|----------|----------|-------------|
-| Avg Wait Time | 32.1s | **0.8s** | **-98%** |
-| Avg Queue Length | 0.2 | **0.0** | **-88%** |
-| Throughput | 1,479 | 1,468 | -1% |
+| Avg Wait Time | 41.9s | **14.4s** | **-66%** |
+| Avg Queue Length | 0.5 | **0.2** | **-60%** |
+| Throughput | 1,200 | **1,300+** | **+8%** |
 
 ---
 
@@ -790,9 +775,8 @@ WeSaveTime-ASEAN/
 | Constant | Value | Location |
 |----------|-------|----------|
 | `OBS_DIM` | 39 | `traffic_env.py` |
-| `ACT_DIM` | 7 | `traffic_env.py` |
+| `ACT_DIM` | 1 | `traffic_env.py` |
 | `MAX_INCOMING_EDGES` | 12 | `traffic_env.py` |
-| `MIN_GREEN_STEPS` | 60 | `traffic_env.py` (30s real) |
 | `_DOWNTOWN_SPEED_CAP_MS` | 13.89 | `tls_metadata.py` (50 km/h) |
 | `_DECEL_RATE` | 3.05 | `tls_metadata.py` (m/s^2) |
 | `_PED_WALK_S` | 7.0 | `tls_metadata.py` (seconds) |

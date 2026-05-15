@@ -433,6 +433,8 @@ class TimingMapDashboard:
             txt.insert(tk.END, "\u2500" * 32 + "\n", "dim")
             txt.insert(tk.END, f"  Avg Wait:  {t['avg_wait']:.1f}s\n")
             txt.insert(tk.END, f"  Avg Queue: {t['avg_queue']:.1f}\n\n")
+            if "avg_duration_s" in t:
+                txt.insert(tk.END, f"  Avg Green: {t['avg_duration_s']:.1f}s\n\n", "mauve")
 
             if "action_dist" in t and t["action_dist"]:
                 txt.insert(tk.END, "AI Phase Selection\n", "sub")
@@ -615,33 +617,60 @@ class TimingMapDashboard:
     def _trained_thread(self, model_path: str):
         try:
             import traci
+            import torch
             for label in ["rl_training"]:
                 try:
                     traci.getConnection(label).close()
                 except Exception:
                     pass
 
-            from src.ai.traffic_env import SumoTrafficEnv, OBS_DIM, ACT_DIM
+            from src.ai.traffic_env import (
+                SumoTrafficEnv, OBS_DIM, ACT_DIM, remap_obs_for_old_model,
+            )
             from src.ai.dqn_agent import TrafficDQNAgent
+            from src.ai.mappo_agent import MAPPOAgent
+
+            ckpt = torch.load(model_path, map_location="cpu", weights_only=True)
+            ckpt_obs_dim = ckpt.get("obs_dim", OBS_DIM)
+            ckpt_act_dim = ckpt.get("act_dim", ACT_DIM)
+            algorithm = ckpt.get("algorithm", "dqn")
+
+            hidden = 256
+            if "model" in ckpt and "actor.0.weight" in ckpt["model"]:
+                hidden = ckpt["model"]["actor.0.weight"].shape[0]
+            elif "model" in ckpt and "actor_backbone.0.weight" in ckpt["model"]:
+                hidden = ckpt["model"]["actor_backbone.0.weight"].shape[0]
+
+            gat_out = 0
+            if "model" in ckpt and "actor_backbone.0.weight" in ckpt["model"]:
+                gat_out = ckpt["model"]["actor_backbone.0.weight"].shape[1] - ckpt_obs_dim
+            uses_gat = algorithm == "mappo" and gat_out > 0
 
             env = SumoTrafficEnv(
                 net_file=_DANANG["net"],
                 route_file=_DANANG["route"],
                 sumo_cfg=_DANANG["cfg"],
-                delta_time=10, sim_length=3600,
+                delta_time=30, sim_length=1800,
                 gui=False, seed=42,
             )
 
-            agent = TrafficDQNAgent(OBS_DIM, ACT_DIM, hidden=256)
-            agent.load(model_path)
+            if algorithm == "mappo":
+                agent = MAPPOAgent(ckpt_obs_dim, ckpt_act_dim, hidden=hidden, gat_out=gat_out)
+                agent.load(model_path)
+            else:
+                agent = TrafficDQNAgent(ckpt_obs_dim, ckpt_act_dim, hidden=hidden)
+                agent.load(model_path)
 
             accum = {tid: {"wait": 0.0, "queue": 0.0, "n": 0}
                      for tid in env.tls_ids}
             action_counts: dict[str, dict[int, int]] = {
                 tid: {} for tid in env.tls_ids}
+            duration_sums = {tid: 0.0 for tid in env.tls_ids}
+            duration_counts = {tid: 0 for tid in env.tls_ids}
 
             # Cache controlled lanes
             obs, _ = env.reset(seed=42)
+            needs_remap = ckpt_obs_dim < OBS_DIM
             tls_lanes: dict[str, list[str]] = {}
             for tid in env.tls_ids:
                 try:
@@ -652,15 +681,37 @@ class TimingMapDashboard:
 
             terminated = truncated = False
             while not (terminated or truncated):
-                actions = {
-                    tid: agent.select_action(
-                        obs[tid], env.get_valid_actions(tid), greedy=True)
-                    for tid in env.tls_ids
-                }
+                actions = {}
+                if algorithm == "mappo":
+                    raw_global = np.mean([obs[tid] for tid in env.tls_ids], axis=0).astype(np.float32)
+                    global_obs = (
+                        remap_obs_for_old_model(raw_global, target_dim=ckpt_obs_dim)
+                        if needs_remap else raw_global
+                    )
+                    if uses_gat:
+                        neighbor_feats_dict, neighbor_masks_dict = env.get_neighbor_obs()
+                for tid in env.tls_ids:
+                    local_obs = (
+                        remap_obs_for_old_model(obs[tid], target_dim=ckpt_obs_dim)
+                        if needs_remap else obs[tid]
+                    )
+                    if algorithm == "mappo":
+                        nf = neighbor_feats_dict.get(tid) if uses_gat else None
+                        nm = neighbor_masks_dict.get(tid) if uses_gat else None
+                        action, _, _ = agent.select_action(
+                            local_obs, global_obs, env.get_valid_actions(tid), greedy=True,
+                            neighbor_feats=nf, neighbor_mask=nm,
+                        )
+                        actions[tid] = action
+                        duration_sums[tid] += env.decode_duration_steps(tid, action) * 0.5
+                        duration_counts[tid] += 1
+                    else:
+                        action = agent.select_action(
+                            local_obs, env.get_valid_actions(tid), greedy=True,
+                        )
+                        actions[tid] = action
+                        action_counts[tid][action] = action_counts[tid].get(action, 0) + 1
                 obs, rewards, terminated, truncated, info = env.step(actions)
-
-                for tid, act in actions.items():
-                    action_counts[tid][act] = action_counts[tid].get(act, 0) + 1
 
                 for tid in env.tls_ids:
                     w = q = 0.0
@@ -684,8 +735,12 @@ class TimingMapDashboard:
                 result[tid] = {
                     "avg_wait": a["wait"] / n,
                     "avg_queue": a["queue"] / n,
-                    "action_dist": action_counts.get(tid, {}),
                 }
+                if algorithm == "mappo":
+                    if duration_counts[tid] > 0:
+                        result[tid]["avg_duration_s"] = duration_sums[tid] / duration_counts[tid]
+                else:
+                    result[tid]["action_dist"] = action_counts.get(tid, {})
             self._msg_q.put(("trained_done", result))
 
         except Exception as e:

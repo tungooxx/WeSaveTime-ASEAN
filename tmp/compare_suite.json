@@ -1,0 +1,138 @@
+{
+  "baseline": [
+    {
+      "episode": 1,
+      "avg_wait": 82.88,
+      "avg_queue": 0.78,
+      "throughput": 1125,
+      "vehicles_end": 515,
+      "time_s": 49.8
+    },
+    {
+      "episode": 2,
+      "avg_wait": 17.44,
+      "avg_queue": 0.29,
+      "throughput": 1269,
+      "vehicles_end": 386,
+      "time_s": 50.5
+    },
+    {
+      "episode": 3,
+      "avg_wait": 25.45,
+      "avg_queue": 0.33,
+      "throughput": 1207,
+      "vehicles_end": 440,
+      "time_s": 49.9
+    }
+  ],
+  "models": {
+    "best_model": {
+      "episodes": [
+        {
+          "episode": 1,
+          "avg_wait": 84.49,
+          "avg_queue": 0.57,
+          "throughput": 1130,
+          "vehicles_end": 505,
+          "total_reward": -206.09,
+          "time_s": 68.1
+        },
+        {
+          "episode": 2,
+          "avg_wait": 74.39,
+          "avg_queue": 0.72,
+          "throughput": 1153,
+          "vehicles_end": 499,
+          "total_reward": -179.53,
+          "time_s": 71.6
+        },
+        {
+          "episode": 3,
+          "avg_wait": 26.91,
+          "avg_queue": 0.23,
+          "throughput": 1220,
+          "vehicles_end": 436,
+          "total_reward": -153.15,
+          "time_s": 67.4
+        }
+      ],
+      "mean": {
+        "avg_wait": 61.93,
+        "avg_queue": 0.5066666666666667,
+        "throughput": 1167.6666666666667
+      }
+    },
+    "level1_best_model": {
+      "episodes": [
+        {
+          "episode": 1,
+          "avg_wait": 61.99,
+          "avg_queue": 0.56,
+          "throughput": 1051,
+          "vehicles_end": 589,
+          "total_reward": -243.42,
+          "time_s": 66.0
+        },
+        {
+          "episode": 2,
+          "avg_wait": 32.83,
+          "avg_queue": 0.67,
+          "throughput": 1211,
+          "vehicles_end": 443,
+          "total_reward": -160.51,
+          "time_s": 62.5
+        },
+        {
+          "episode": 3,
+          "avg_wait": 26.4,
+          "avg_queue": 0.32,
+          "throughput": 1234,
+          "vehicles_end": 418,
+          "total_reward": -167.33,
+          "time_s": 58.0
+        }
+      ],
+      "mean": {
+        "avg_wait": 40.406666666666666,
+        "avg_queue": 0.5166666666666667,
+        "throughput": 1165.3333333333333
+      }
+    },
+    "final_model": {
+      "episodes": [
+        {
+          "episode": 1,
+          "avg_wait": 26.23,
+          "avg_queue": 0.29,
+          "throughput": 1146,
+          "vehicles_end": 497,
+          "total_reward": -195.55,
+          "time_s": 65.1
+        },
+        {
+          "episode": 2,
+          "avg_wait": 12.96,
+          "avg_queue": 0.18,
+          "throughput": 1181,
+          "vehicles_end": 472,
+          "total_reward": -172.7,
+          "time_s": 64.5
+        },
+        {
+          "episode": 3,
+          "avg_wait": 51.95,
+          "avg_queue": 0.56,
+          "throughput": 1153,
+          "vehicles_end": 498,
+          "total_reward": -214.26,
+          "time_s": 65.5
+        }
+      ],
+      "mean": {
+        "avg_wait": 30.38,
+        "avg_queue": 0.3433333333333333,
+        "throughput": 1160.0
+      }
+    }
+  }
+}

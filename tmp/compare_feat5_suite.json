@@ -1,0 +1,177 @@
+{
+  "settings": {
+    "episodes": 3,
+    "sim_length": 1800,
+    "delta_time": 30,
+    "seed": 1000
+  },
+  "baseline": [
+    {
+      "episode": 1,
+      "avg_wait": 82.88,
+      "avg_queue": 0.78,
+      "throughput": 1125,
+      "vehicles_end": 515,
+      "time_s": 62.5
+    },
+    {
+      "episode": 2,
+      "avg_wait": 17.44,
+      "avg_queue": 0.29,
+      "throughput": 1269,
+      "vehicles_end": 386,
+      "time_s": 60.1
+    },
+    {
+      "episode": 3,
+      "avg_wait": 25.45,
+      "avg_queue": 0.33,
+      "throughput": 1207,
+      "vehicles_end": 440,
+      "time_s": 59.4
+    }
+  ],
+  "models": {
+    "current_level2_best": {
+      "path": "checkpoints/best_model.pt",
+      "episodes": [
+        {
+          "episode": 1,
+          "avg_wait": 35.15,
+          "avg_queue": 0.28,
+          "throughput": 1183,
+          "vehicles_end": 459,
+          "total_reward": -173.42,
+          "time_s": 106.3
+        },
+        {
+          "episode": 2,
+          "avg_wait": 11.18,
+          "avg_queue": 0.23,
+          "throughput": 1281,
+          "vehicles_end": 373,
+          "total_reward": -117.14,
+          "time_s": 83.8
+        },
+        {
+          "episode": 3,
+          "avg_wait": 18.2,
+          "avg_queue": 0.36,
+          "throughput": 1249,
+          "vehicles_end": 402,
+          "total_reward": -148.52,
+          "time_s": 90.5
+        }
+      ],
+      "baseline": {
+        "avg_wait": 41.92333333333333,
+        "avg_queue": 0.4666666666666666,
+        "throughput": 1200.3333333333333
+      },
+      "model": {
+        "avg_wait": 21.51,
+        "avg_queue": 0.29,
+        "throughput": 1237.6666666666667
+      },
+      "improvement": {
+        "wait_pct": 48.7,
+        "queue_pct": 37.9,
+        "throughput_pct": 3.1
+      }
+    },
+    "feat5_best": {
+      "path": "checkpoints/retrain_feat5_20260414_155806/best_model.pt",
+      "episodes": [
+        {
+          "episode": 1,
+          "avg_wait": 70.38,
+          "avg_queue": 0.46,
+          "throughput": 1160,
+          "vehicles_end": 490,
+          "total_reward": -186.88,
+          "time_s": 92.7
+        },
+        {
+          "episode": 2,
+          "avg_wait": 27.75,
+          "avg_queue": 0.24,
+          "throughput": 1272,
+          "vehicles_end": 379,
+          "total_reward": -126.3,
+          "time_s": 86.6
+        },
+        {
+          "episode": 3,
+          "avg_wait": 172.61,
+          "avg_queue": 0.94,
+          "throughput": 1110,
+          "vehicles_end": 538,
+          "total_reward": -197.47,
+          "time_s": 97.0
+        }
+      ],
+      "baseline": {
+        "avg_wait": 41.92333333333333,
+        "avg_queue": 0.4666666666666666,
+        "throughput": 1200.3333333333333
+      },
+      "model": {
+        "avg_wait": 90.24666666666667,
+        "avg_queue": 0.5466666666666666,
+        "throughput": 1180.6666666666667
+      },
+      "improvement": {
+        "wait_pct": -115.3,
+        "queue_pct": -17.1,
+        "throughput_pct": -1.6
+      }
+    },
+    "feat5_final": {
+      "path": "checkpoints/retrain_feat5_20260414_155806/final_model.pt",
+      "episodes": [
+        {
+          "episode": 1,
+          "avg_wait": 60.48,
+          "avg_queue": 0.58,
+          "throughput": 1157,
+          "vehicles_end": 481,
+          "total_reward": -208.25,
+          "time_s": 83.5
+        },
+        {
+          "episode": 2,
+          "avg_wait": 19.47,
+          "avg_queue": 0.23,
+          "throughput": 1293,
+          "vehicles_end": 353,
+          "total_reward": -111.47,
+          "time_s": 90.6
+        },
+        {
+          "episode": 3,
+          "avg_wait": 31.62,
+          "avg_queue": 0.38,
+          "throughput": 1119,
+          "vehicles_end": 531,
+          "total_reward": -185.59,
+          "time_s": 150.2
+        }
+      ],
+      "baseline": {
+        "avg_wait": 41.92333333333333,
+        "avg_queue": 0.4666666666666666,
+        "throughput": 1200.3333333333333
+      },
+      "model": {
+        "avg_wait": 37.19,
+        "avg_queue": 0.39666666666666667,
+        "throughput": 1189.6666666666667
+      },
+      "improvement": {
+        "wait_pct": 11.3,
+        "queue_pct": 15.0,
+        "throughput_pct": -0.9
+      }
+    }
+  }
+}

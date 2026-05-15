@@ -32,12 +32,12 @@ _MAX_CYCLE_STEPS = 240               # 120 real seconds at step_length=0.5
 _VN_SATURATION_FLOW = 4092           # PCU/hr/lane (Vietnamese measured)
 _SIM_STEP_LENGTH = 0.5               # seconds per simulation step
 
-# Tier-based limits
+# Tier-based limits — max_green must be well above ped_min to give AI control range
 _TIER_PARAMS = {
     #               veh_min_green_s, max_green_s
-    "small":   (10,  25),
-    "medium":  (15,  45),
-    "large":   (20,  60),
+    "small":   (7,   45),
+    "medium":  (10,  60),
+    "large":   (15,  90),
 }
 
 
@@ -155,8 +155,10 @@ def compute_tls_geometry(
     # ── Pedestrian minimum green ───────────────────────────────────
     ped_min_s = _PED_WALK_S + width / _PED_SPEED_MS
 
-    # ── Actual min green = max(vehicle, ped), capped at max_green ─
-    min_green_s = max(veh_min_s, min(ped_min_s, max_green_s))
+    # ── Actual min green = max(vehicle, ped), capped to leave AI control range
+    # Ensure at least 10s gap between min and max for AI to explore
+    min_cap = max_green_s - 10.0  # leave at least 10s of control range
+    min_green_s = max(veh_min_s, min(ped_min_s, min_cap))
 
     # ── Max cycle constraint ───────────────────────────────────────
     # Ensure total cycle ≤ 120 real seconds

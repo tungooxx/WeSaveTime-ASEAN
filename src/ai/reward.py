@@ -23,40 +23,40 @@ def compute_tls_reward(
     phase_changed: bool = False,
     transition_cost: float = 1.0,
     max_queue_cap: float = 50.0,
-    w_wait: float = 0.20,
-    w_queue: float = 0.25,
-    w_throughput: float = 0.10,
-    w_pressure: float = 0.40,
+    max_wait_cap: float = 300.0,
+    w_wait: float = 0.50,
+    w_queue: float = 0.20,
+    w_throughput: float = 0.0,
+    w_pressure: float = 0.15,
     w_switch: float = 0.05,
 ) -> float:
     """Compute scalar reward for one TLS (higher = better).
 
-    Pressure-primary reward (PressLight-style):
-    - Pressure (outgoing - incoming vehicles) is the main signal
-    - Queue and wait penalties discourage congestion buildup
+    Wait-primary reward:
+    - Absolute wait time is the main penalty (directly tied to the metric we optimise)
+    - Queue and pressure provide auxiliary gradient
     - Small switch penalty discourages unnecessary phase changes
 
-    Range: approximately -0.7 to +0.5 per step.
+    Range: approximately -0.7 to +0.1 per step.
     """
-    # 1. Pressure: outgoing > incoming = good flow (main signal)
-    pressure_term = w_pressure * float(np.clip(pressure / 10.0, -1.0, 1.0))
+    # 1. Wait penalty: absolute level (main signal, directly correlates with metric)
+    wait_term = -w_wait * float(np.clip(new_waiting / max_wait_cap, 0.0, 1.0))
 
-    # 2. Queue penalty: absolute level, not delta
+    # 2. Queue penalty: absolute level
     avg_q = float(np.mean(queue_lengths)) if queue_lengths else 0.0
     queue_term = -w_queue * (avg_q / max_queue_cap)
 
-    # 3. Wait delta: penalise increasing wait, reward decreasing
-    delta_wait = new_waiting - old_waiting
-    wait_term = -w_wait * float(np.clip(delta_wait / 50.0, -1.0, 1.0))
+    # 3. Pressure: outgoing > incoming = good flow
+    pressure_term = w_pressure * float(np.clip(pressure / 10.0, -1.0, 1.0))
 
-    # 4. Throughput bonus: vehicles clearing intersection (fewer = better flow)
+    # 4. Throughput bonus: vehicles clearing intersection
     tp_change = old_throughput - new_throughput
     throughput_term = w_throughput * float(np.clip(tp_change / 10.0, -1.0, 1.0))
 
     # 5. Small switch penalty to discourage unnecessary phase changes
     switch_term = -w_switch * transition_cost if phase_changed else 0.0
 
-    return float(pressure_term + queue_term + wait_term
+    return float(wait_term + queue_term + pressure_term
                  + throughput_term + switch_term)
 
 

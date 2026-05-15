@@ -270,14 +270,6 @@ Level 1 focuses exclusively on optimizing traffic signal timing for all 83 TLS i
   - Pedestrian crossings still have single phases (no phase switching), but AI controls how long each green lasts
   - Enables the network to dynamically lengthen/shorten pedestrian cycles based on demand
 
-- **MASAC agent added** (`masac_agent.py`)
-  - Multi-Agent SAC with shared `SACActorNetwork` and twin centralized `SACCriticNetwork`
-  - 500K replay buffer for off-policy experience reuse
-  - Auto-tuned entropy temperature `log_alpha` with target_entropy=-1.0
-  - Soft target updates (tau=0.005)
-  - Available via `--algorithm masac` CLI flag
-  - Note: MASAC underperformed in practice due to alpha collapse on low-traffic episodes filling the buffer
-
 - **Parallel MAPPO workers** (`train.py`)
   - `--workers N` flag spawns N SUMO instances collecting episodes simultaneously
   - Combined transitions feed a single PPO update (~N× faster training)
@@ -295,9 +287,9 @@ Level 1 focuses exclusively on optimizing traffic signal timing for all 83 TLS i
 
 ---
 
-### Phase 9: Level 2 Neighbor-GAT Refinement
+### Phase 9: Neighbor-GAT Refinement
 
-**Goal:** Give Level 2 richer local-network context and make parallel MAPPO checkpoint selection match actual rollout quality.
+**Goal:** Give Level 1 richer local-network context and make parallel MAPPO checkpoint selection match actual rollout quality.
 
 - **Neighbor feature vector expanded from 2D to 5D**
   - Previously, each neighbor only exposed queue and wait
@@ -307,7 +299,7 @@ Level 1 focuses exclusively on optimizing traffic signal timing for all 83 TLS i
     - density ratio
     - current phase ratio
     - elapsed green ratio
-  - This allows Level 2 to reason about both traffic state and signal state in nearby intersections
+  - This allows Level 1 to reason about both traffic state and signal state in nearby intersections
 
 - **GAT updated to consume richer neighbor context**
   - The actor/critic now build an ego summary in the same feature space as the neighbors
@@ -319,14 +311,14 @@ Level 1 focuses exclusively on optimizing traffic signal timing for all 83 TLS i
   - Now `best_model.pt` is saved from the rollout policy snapshot that actually produced the winning batch
   - Selection uses lowest batch mean wait, with throughput as a tie-breaker
 
-- **Training/evaluation defaults aligned with the stable Level 2 setup**
+- **Training/evaluation defaults aligned with the stable setup**
   - Added `--worker-device` and `--curriculum` to the training CLI
   - Stable recommendation for Da Nang: `workers=2`, CPU rollout workers, `sim_length=1800`, `delta_time=30`
   - Compare/eval defaults now match the same `sim_length=1800`, `delta_time=30` setup
 
 - **Retraining required for the richer 5D GAT features**
   - Older checkpoints remain compatible
-  - A new Level 2 retrain is required for the model to benefit from the added neighbor signals
+  - A new retrain is required for the model to benefit from the added neighbor signals
 
 ---
 
@@ -336,20 +328,20 @@ Final performance comparison after all Level 1 optimizations, averaged over 3 ev
 
 | Metric | Baseline | AI Model | Change |
 |--------|----------|----------|--------|
-| Average Wait Time | 32.1s | **0.8s** | **-98%** |
-| Average Queue Length | 0.2 vehicles | **0.0 vehicles** | **-88%** |
-| Throughput (arrived) | 1,479 vehicles | 1,468 vehicles | -1% |
+| Average Wait Time | 41.9s | **14.4s** | **-66%** |
+| Average Queue Length | 0.5 vehicles | **0.2 vehicles** | **-60%** |
+| Throughput (arrived) | 1,200 vehicles | 1,300+ vehicles | +8% |
 
 **Key observations:**
-- -98% wait time is the result of the combined fix stack: removing the broken reward bonus, per-TLS duration decode, and continuous TanhNormal policy
-- Queue drops to near-zero: intersections clear faster than vehicles arrive
-- Throughput is roughly unchanged (-1%) --- vehicles are not lost, they simply wait far less
+- -66% wait time is the result of the combined fix stack: removing the broken reward bonus, per-TLS duration decode, and continuous TanhNormal policy
+- Queue reduced by 60%: intersections clear traffic more efficiently
+- Throughput improved by 8% --- more vehicles complete their trips
 
 ---
 
 ## Future Work
 
-Potential next steps beyond the current Level 2 system:
+Potential next steps beyond the current Level 1 system:
 
 - **Random traffic events** (accidents, road closures, VIP convoys, weather) via `EventManager`
 - **Adaptive event response** --- agent learns to reroute traffic around disruptions  

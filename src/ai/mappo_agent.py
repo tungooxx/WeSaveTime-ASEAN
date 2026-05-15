@@ -76,7 +76,7 @@ class NeighborGAT(nn.Module):
         self.ego_proj = nn.Linear(feat_dim, feat_dim)
         self.out = nn.Linear(feat_dim, out_dim)
 
-    def forward(self, ego_summary, neighbors, mask):
+    def forward(self, ego_summary, neighbors, mask, return_weights: bool = False):
         # ego_summary: (B, feat_dim), neighbors: (B, N, feat_dim), mask: (B, N) bool
         B, N, F = neighbors.shape
         ego_exp = self.ego_proj(ego_summary).unsqueeze(1).expand(B, N, F)
@@ -86,7 +86,10 @@ class NeighborGAT(nn.Module):
         scores = scores.masked_fill(all_masked.expand_as(scores), 0.0)
         weights = torch.softmax(scores, dim=-1) * mask.float()
         agg = (weights.unsqueeze(-1) * neighbors).sum(dim=1)
-        return self.out(agg)
+        out = self.out(agg)
+        if return_weights:
+            return out, weights
+        return out
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -153,12 +156,36 @@ class ActorCritic(nn.Module):
 
         return summary
 
-    def _apply_gat(self, obs, neighbor_feats, neighbor_mask):
+    def _coerce_neighbor_feats(self, neighbor_feats: torch.Tensor) -> torch.Tensor:
+        """Trim or zero-pad neighbor features to match the checkpoint GAT size."""
+        feat_dim = neighbor_feats.shape[-1]
+        if feat_dim == self.neighbor_feat_dim:
+            return neighbor_feats
+        if feat_dim > self.neighbor_feat_dim:
+            return neighbor_feats[..., :self.neighbor_feat_dim]
+
+        pad_shape = list(neighbor_feats.shape)
+        pad_shape[-1] = self.neighbor_feat_dim - feat_dim
+        pad = torch.zeros(
+            pad_shape, dtype=neighbor_feats.dtype, device=neighbor_feats.device
+        )
+        return torch.cat([neighbor_feats, pad], dim=-1)
+
+    def _apply_gat(self, obs, neighbor_feats, neighbor_mask, return_weights: bool = False):
         if self.gat_out == 0 or self.gat is None:
+            if return_weights:
+                return obs, None
             return obs
+        neighbor_feats = self._coerce_neighbor_feats(neighbor_feats)
         ego_summary = self._build_ego_summary(obs)
-        gat_emb = self.gat(ego_summary, neighbor_feats, neighbor_mask)
-        return torch.cat([obs, gat_emb], dim=-1)
+        gat_out = self.gat(
+            ego_summary, neighbor_feats, neighbor_mask,
+            return_weights=return_weights,
+        )
+        if return_weights:
+            gat_emb, weights = gat_out
+            return torch.cat([obs, gat_emb], dim=-1), weights
+        return torch.cat([obs, gat_out], dim=-1)
 
     def forward_actor(self, obs: torch.Tensor,
                       valid_mask: Optional[torch.Tensor] = None,
@@ -176,6 +203,27 @@ class ActorCritic(nn.Module):
         mean = self.actor_mean(h)
         std = torch.exp(self.actor_log_std.clamp(-4, 2)).expand_as(mean)
         return TanhNormal(mean, std)
+
+    def explain_actor(self, obs: torch.Tensor,
+                      valid_mask: Optional[torch.Tensor] = None,
+                      neighbor_feats: Optional[torch.Tensor] = None,
+                      neighbor_mask: Optional[torch.Tensor] = None):
+        """Return actor distribution plus optional neighbor attention weights."""
+        attn_weights = None
+        if self.gat_out > 0 and neighbor_feats is not None and neighbor_mask is not None:
+            x, attn_weights = self._apply_gat(
+                obs, neighbor_feats, neighbor_mask, return_weights=True,
+            )
+        else:
+            if self.gat_out > 0:
+                pad = torch.zeros(obs.shape[0], self.gat_out, device=obs.device)
+                x = torch.cat([obs, pad], dim=-1)
+            else:
+                x = obs
+        h = self.actor_backbone(x)
+        mean = self.actor_mean(h)
+        std = torch.exp(self.actor_log_std.clamp(-4, 2)).expand_as(mean)
+        return TanhNormal(mean, std), attn_weights
 
     def forward_critic(self, obs: torch.Tensor,
                        global_obs: torch.Tensor,
@@ -389,6 +437,43 @@ class MAPPOAgent:
             action = dist.mean if greedy else dist.sample()
             log_prob = dist.log_prob(action)
             return action.squeeze(0).cpu().numpy(), float(log_prob.item()), float(value.item())
+
+    def explain_action(
+        self,
+        obs: np.ndarray,
+        global_obs: np.ndarray,
+        valid_actions: Optional[list[int]] = None,
+        greedy: bool = True,
+        neighbor_feats: Optional[np.ndarray] = None,
+        neighbor_mask: Optional[np.ndarray] = None,
+    ) -> dict:
+        """Inference-only explanation path returning action, value, and attention."""
+        with torch.no_grad():
+            obs_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
+            global_t = torch.FloatTensor(global_obs).unsqueeze(0).to(self.device)
+
+            nf_t = None
+            nm_t = None
+            if neighbor_feats is not None and neighbor_mask is not None:
+                nf_t = torch.FloatTensor(neighbor_feats).unsqueeze(0).to(self.device)
+                nm_t = torch.BoolTensor(neighbor_mask).unsqueeze(0).to(self.device)
+
+            dist, attn_weights = self.network.explain_actor(obs_t, None, nf_t, nm_t)
+            value = self.network.forward_critic(obs_t, global_t, nf_t, nm_t)
+
+            action = dist.mean if greedy else dist.sample()
+            log_prob = dist.log_prob(action)
+
+            weights = None
+            if attn_weights is not None:
+                weights = attn_weights.squeeze(0).detach().cpu().numpy()
+
+            return {
+                "action": action.squeeze(0).cpu().numpy(),
+                "log_prob": float(log_prob.item()),
+                "value": float(value.item()),
+                "attention_weights": weights,
+            }
 
     def get_valid_mask(self, valid_actions: list[int]) -> np.ndarray:
         """Create boolean mask array for valid actions."""

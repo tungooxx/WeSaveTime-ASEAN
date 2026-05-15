@@ -430,9 +430,18 @@ class Visualizer:
             # Auto-detect hidden size from checkpoint weights
             if "model" in ckpt and "actor.0.weight" in ckpt["model"]:
                 self.hidden = ckpt["model"]["actor.0.weight"].shape[0]
+            elif "model" in ckpt and "actor_backbone.0.weight" in ckpt["model"]:
+                self.hidden = ckpt["model"]["actor_backbone.0.weight"].shape[0]
+
+            # Auto-detect gat_out
+            ckpt_gat_out = 0
+            if "model" in ckpt and "actor_backbone.0.weight" in ckpt["model"]:
+                backbone_in = ckpt["model"]["actor_backbone.0.weight"].shape[1]
+                ckpt_gat_out = backbone_in - ckpt_obs_dim
+            self._uses_gat = algorithm == "mappo" and ckpt_gat_out > 0
 
             if algorithm == "mappo":
-                agent = MAPPOAgent(ckpt_obs_dim, ckpt_act_dim, self.hidden)
+                agent = MAPPOAgent(ckpt_obs_dim, ckpt_act_dim, self.hidden, gat_out=ckpt_gat_out)
                 agent.load(self.model_path)
             else:
                 agent = TrafficDQNAgent(ckpt_obs_dim, ckpt_act_dim, self.hidden)
@@ -516,11 +525,18 @@ class Visualizer:
                         [obs[tid] for tid in env.tls_ids], axis=0
                     ).astype(np.float32)
                     global_obs = remap_obs_for_old_model(raw_global, target_dim=ckpt_obs_dim) if needs_remap else raw_global
+                    if self._uses_gat:
+                        neighbor_feats_dict, neighbor_masks_dict = env.get_neighbor_obs()
                 for tid in env.tls_ids:
                     valid = env.get_valid_actions(tid)
                     o = remap_obs_for_old_model(obs[tid], target_dim=ckpt_obs_dim) if needs_remap else obs[tid]
                     if self._algorithm == "mappo":
-                        a, _, _ = agent.select_action(o, global_obs, valid, greedy=True)
+                        nf = neighbor_feats_dict.get(tid) if self._uses_gat else None
+                        nm = neighbor_masks_dict.get(tid) if self._uses_gat else None
+                        a, _, _ = agent.select_action(
+                            o, global_obs, valid, greedy=True,
+                            neighbor_feats=nf, neighbor_mask=nm,
+                        )
                     else:
                         a = agent.select_action(o, valid, greedy=True)
                     actions[tid] = a

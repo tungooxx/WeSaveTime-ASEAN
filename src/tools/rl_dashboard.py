@@ -132,9 +132,6 @@ class TrainingThread(threading.Thread):
                 else:
                     from src.ai.train import train_mappo_with_callbacks
                     train_mappo_with_callbacks(**mappo_kwargs)
-            elif self.params.get("dyna", False):
-                from src.ai.train import train_dyna_with_callbacks
-                train_dyna_with_callbacks(**common_kwargs)
             else:
                 from src.ai.train import train_with_callbacks
                 train_with_callbacks(**common_kwargs)
